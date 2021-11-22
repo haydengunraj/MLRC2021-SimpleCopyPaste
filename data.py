@@ -1,12 +1,8 @@
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('TkAgg')
 import torch
 import numpy as np
 from PIL import Image
 from torchvision.datasets import Cityscapes
 from detection import transforms as T
-from detection.coco_utils import _coco_remove_images_without_annotations
 
 NUM_CLASSES = 11
 
