@@ -1,20 +1,23 @@
 import torch
+import torch.nn as nn
 import numpy as np
 from PIL import Image
 from torchvision.datasets import Cityscapes
+from torchvision.transforms import functional as F
 from detection import transforms as T
 
 NUM_CLASSES = 11
+_INSTANCE_SELECTION_MODES = ('one', 'subset', 'all')
 
 
 class CityscapesInstanceDataset(Cityscapes):
-    """Modifies the built-in Cityscapes dataset class to
+    """Modifies the torchvision Cityscapes dataset class to
      use the target format of torchvision detection models"""
-    def __init__(self, root, split='train', transforms=None):
+    def __init__(self, root, split='train', transforms=None, clean=True):
         super().__init__(
             root=root, split=split, mode='fine', target_type='instance', transforms=None)
         self.transforms = transforms
-        if split == 'train':
+        if split == 'train' and clean:
             self._remove_images_without_annotations()
 
     def _remove_images_without_annotations(self):
@@ -84,31 +87,181 @@ class CityscapesInstanceDataset(Cityscapes):
 
 
 class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
-    def __init__(self, root, split='train', transforms=None):
+    """Modifies the CityscapesInstanceDataset to add Copy-Paste Augmentation"""
+    def __init__(self, root, split='train', transforms=None, clean=True, selection_mode='subset',
+                 occluded_obj_thresh=20, p=0.5):
         super().__init__(
-            root=root, split=split, transforms=transforms)
-        self.transforms = transforms
+            root=root, split=split, transforms=transforms, clean=clean)
+        if selection_mode not in _INSTANCE_SELECTION_MODES:
+            raise ValueError('Invalid selection_mode: {}. Must be one of: {}'.format(
+                selection_mode, _INSTANCE_SELECTION_MODES))
+        self.selection_mode = selection_mode
+        self.occluded_obj_thresh = occluded_obj_thresh
+        self.p = p
+
+    def __getitem__(self, index):
+        # Load image and target
+        image, target = super().__getitem__(index)
+
+        if self.split != 'train' or torch.rand(1) > self.p:
+            return image, target
+
+        # Get random second image and target
+        img_indices = np.arange(len(self), dtype=np.int32)
+        img_indices[index] = index - 1 if index else index + 1  # ensure same image not selected
+        src_image, src_target = super().__getitem__(np.random.choice(img_indices))
+
+        # Select object indices from second image
+        num_objs = len(src_target['labels'])
+        obj_indices = np.arange(num_objs, dtype=np.int32)  # all
+        if self.selection_mode == _INSTANCE_SELECTION_MODES[0]:  # one
+            obj_indices = np.atleast_1d(np.random.choice(obj_indices))
+        elif self.selection_mode == _INSTANCE_SELECTION_MODES[1]:  # random subset
+            num_inst = np.random.randint(0, num_objs)
+            obj_indices = np.random.choice(obj_indices, num_inst, replace=False)
+
+        # Get overall mask of instances
+        src_mask = torch.any(src_target['masks'][obj_indices], dim=0, keepdim=True)
+
+        # Remove overall mask from masks in original image
+        new_masks = target['masks'] - np.logical_and(target['masks'], src_mask)
+
+        # Update target to fix occluded masks
+        target = update_occluded_masks(target, new_masks, occluded_obj_thresh=self.occluded_obj_thresh)
+
+        # Add pasted instances to target
+        for key in ('labels', 'boxes', 'masks', 'area', 'iscrowd'):
+            target[key] = torch.cat((target[key], src_target[key][obj_indices]), dim=0)
+
+        # Paste instances into original image
+        src_mask = src_mask[0].type(torch.bool)
+        image[:, src_mask] = src_image[:, src_mask]
+
+        return image, target
 
 
-class CopyPaste:
-    def __init__(self, occluded_obj_threshold=300, box_update_threshold=10, p=0.5):
-        pass
+class RandomScaleJitter(nn.Module):
+    """Implements random scale jitter"""
+    def __init__(self, scale_range=(0.8, 1.2), occluded_obj_thresh=20, p=0.5):
+        super().__init__()
+        self.fill = [127.5, 127.5, 127.5]
+        self.scale_range = scale_range
+        self.occluded_obj_thresh = occluded_obj_thresh
+        if scale_range[0] > scale_range[1]:
+            raise ValueError('Invalid scale range: {}'.format(scale_range))
+        self.p = p
 
-    def __call__(self, source_image, dest_image, source_mask, dest_mask):
-        raise NotImplementedError
+    @torch.jit.unused
+    def _get_fill_value(self, is_pil):
+        # type: (bool) -> int
+        return tuple(int(x) for x in self.fill) if is_pil else 0
+
+    def forward(self, image, target=None):
+        if torch.rand(1) > self.p:
+            return image, target
+
+        if torch.jit.is_scripting():
+            fill = 0
+        else:
+            fill = self._get_fill_value(F._is_pil_image(image))
+
+        # Get new image size from scale
+        width, height = F.get_image_size(image)
+        scale = self.scale_range[0] + torch.rand(1)*(self.scale_range[1] - self.scale_range[0])
+        new_width = int(width*scale)
+        new_height = int(height*scale)
+
+        if scale < 1:
+            # Resize and pad image
+            right_pad = width - new_width
+            bottom_pad = height - new_height
+            image = F.resize(image, [new_height, new_width])
+            image = F.pad(image, [0, 0, right_pad, bottom_pad], fill=fill)
+
+            if target is not None:
+                # Resize and pad masks w/ bbox updates
+                for i, mask in enumerate(target['masks']):
+                    mask = mask.unsqueeze(0)
+                    mask = F.resize(mask, [new_height, new_width], interpolation=F.InterpolationMode.NEAREST)
+                    mask = F.pad(mask, [0, 0, right_pad, bottom_pad], fill=0)
+                    target['masks'][i] = mask
+                    target['boxes'][i] = target['boxes'][i]*scale
+        elif scale > 1:
+            # Resize and randomly crop image
+            top = int(torch.rand(1)*(new_height - height))
+            left = int(torch.rand(1)*(new_width - width))
+            image = F.resize(image, [new_height, new_width])
+            image = F.crop(image, top, left, height, width)
+
+            if target is not None:
+                # Resize and crop masks
+                new_masks = []
+                for mask in target['masks']:
+                    mask = mask.unsqueeze(0)
+                    mask = F.resize(mask, [new_height, new_width], interpolation=F.InterpolationMode.NEAREST)
+                    mask = F.crop(mask, top, left, height, width)
+                    new_masks.append(mask)
+                new_masks = torch.cat(new_masks, dim=0)
+
+                # Update target
+                target = update_occluded_masks(target, new_masks, occluded_obj_thresh=self.occluded_obj_thresh)
+
+        return image, target
 
 
-def get_cityscapes_dataset(root):
-    train_dataset = CityscapesInstanceDataset(
-        root=root, split='train', transforms=get_transform(True))
+def update_occluded_masks(target, new_masks, occluded_obj_thresh):
+    """Edits targets to remove occluded masks and update boxes and areas"""
+    # Check for masks to be kept
+    new_mask_sizes = torch.sum(new_masks, dim=(1, 2))
+    good_indices = torch.nonzero(new_mask_sizes > occluded_obj_thresh, as_tuple=True)[0]
+
+    # Update bounding boxes and areas
+    for i in good_indices:
+        y, x = torch.nonzero(new_masks[i], as_tuple=True)
+        target['boxes'][i, 0] = x.min()
+        target['boxes'][i, 1] = y.min()
+        target['boxes'][i, 2] = x.max()
+        target['boxes'][i, 3] = y.max()
+        target['area'][i] = (target['boxes'][i, 3] - target['boxes'][i, 1])*(
+                target['boxes'][i, 2] - target['boxes'][i, 0])
+    target['masks'] = new_masks
+
+    # Remove occluded objects from target
+    for key in ('labels', 'boxes', 'masks', 'area', 'iscrowd'):
+        target[key] = target[key][good_indices]
+
+    return target
+
+
+def get_transform(is_training, jitter_mode='standard'):
+    """Creates transforms for the Cityscapes dataset"""
+    if is_training:
+        if jitter_mode == 'standard':
+            scale_range = [0.8, 1.2]
+        elif jitter_mode == 'large':
+            scale_range = [0.1, 2]
+        else:
+            raise ValueError('Invalid scale jitter mode: {}'.format(jitter_mode))
+        transforms = [
+            T.RandomHorizontalFlip(p=0.5),
+            RandomScaleJitter(scale_range=scale_range, occluded_obj_thresh=20, p=0.5)
+        ]
+    else:
+        transforms = []
+    transforms.append(T.ToTensor())
+    return T.Compose(transforms)
+
+
+def get_cityscapes_dataset(root, jitter_mode='standard', copy_paste=True):
+    """Helper to create Cityscapes train/val datasets"""
+    train_tform = get_transform(True, jitter_mode=jitter_mode)
+    if copy_paste:
+        train_dataset = CityscapesCopyPasteInstanceDataset(
+            root=root, split='train', transforms=train_tform)
+    else:
+        train_dataset = CityscapesInstanceDataset(
+            root=root, split='train', transforms=train_tform)
     val_dataset = CityscapesInstanceDataset(
         root=root, split='val', transforms=get_transform(False))
 
     return train_dataset, val_dataset
-
-
-def get_transform(is_training):
-    transforms = [T.ToTensor()]
-    if is_training:
-        transforms.append(T.RandomHorizontalFlip(0.5))
-    return T.Compose(transforms)

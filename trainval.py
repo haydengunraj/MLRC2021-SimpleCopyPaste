@@ -30,6 +30,8 @@ def trainval_cityscapes(
         epochs=10,
         eval_interval=5,
         batch_size=2,
+        copy_paste=True,
+        jitter_mode='standard',
         lr=0.005,
         momentum=0.9,
         weight_decay=0.0005,
@@ -43,7 +45,8 @@ def trainval_cityscapes(
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
-    train_dataset, val_dataset = get_cityscapes_dataset(cityscapes_root)
+    train_dataset, val_dataset = get_cityscapes_dataset(
+        cityscapes_root, jitter_mode=jitter_mode, copy_paste=copy_paste)
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
@@ -105,10 +108,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('name', type=str, help='Name for the training run')
     parser.add_argument('-r', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
-    parser.add_argument('-c', '--copy_paste', action='store_true', help='Flag to enable Copy-Paste augmentation')
     parser.add_argument('-e', '--epochs', type=int, default=200, help='Training epochs')
     parser.add_argument('-i', '--eval_interval', type=int, default=10, help='Interval between evaluations, in epochs')
     parser.add_argument('-b', '--batch_size', type=int, default=16, help='Training batch size')
+    parser.add_argument('-c', '--copy_paste', action='store_true', help='Flag to enable Copy-Paste augmentation')
+    parser.add_argument('-j', '--jitter_mode', type=str, default='standard',
+                        choices=('standard', 'large'), help='Scale jitter mode')
     parser.add_argument('-l', '--lr', type=float, default=0.02, help='Learning rate')
     parser.add_argument('-m', '--momentum', type=float, default=0.9, help='Optimizer momentum')
     parser.add_argument('-w', '--weight_decay', type=float, default=0.0001, help='Optimizer weight decay')
@@ -117,10 +122,6 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
     parser.add_argument('-d', '--gpu_device', type=int, default=0, help='GPU index')
     args = parser.parse_args()
-
-    # Block Copy-Paste training - not yet implemented
-    if args.copy_paste:
-        raise NotImplementedError
 
     # Make output directory and get device ID
     output_dir = os.path.join(EXPERIMENT_DIR, args.name)
@@ -138,6 +139,8 @@ if __name__ == '__main__':
         epochs=args.epochs,
         eval_interval=args.eval_interval,
         batch_size=args.batch_size,
+        copy_paste=args.copy_paste,
+        jitter_mode=args.jitter_mode,
         lr=args.lr,
         momentum=args.momentum,
         weight_decay=args.weight_decay,
