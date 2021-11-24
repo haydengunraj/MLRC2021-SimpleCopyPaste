@@ -112,37 +112,3 @@ def get_transform(is_training):
     if is_training:
         transforms.append(T.RandomHorizontalFlip(0.5))
     return T.Compose(transforms)
-
-
-# if __name__ == '__main__':
-#     root = 'D:\\Datasets\\Cityscapes'
-#     import cv2
-#     import numpy as np
-#     import matplotlib.pyplot as plt
-#
-#     dset = CityscapesInstanceDataset(root, split='val')
-#
-#     idx = 5
-#     im, tar = dset[idx]
-#
-#     im = np.asarray(im).astype(np.uint8)
-#     classes = tar['labels'].numpy()
-#     index_map = {cls: i for i, cls in enumerate(np.unique(classes))}
-#     boxes = tar['boxes'].numpy().astype(np.int32)
-#
-#     colours = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
-#
-#     for cls, box in zip(classes, boxes):
-#         cv2.rectangle(im, tuple(box[:2]), tuple(box[2:]), colours[index_map[cls]], 2)
-#
-#
-#     # tar = np.asarray(tar)
-#     #
-#     # print(np.unique(tar))
-#     #
-#     #
-#     fig, ax = plt.subplots()
-#     ax.imshow(im)
-#     plt.show()
-#
-#     # print(tar.min(), tar.max(), tar.shape, tar.dtype)

@@ -9,6 +9,7 @@ from metrics import MetricManager, ScalarMetric
 
 TORCH_HOME = 'weights'
 LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg')
+EXPERIMENT_DIR = 'experiments'
 
 
 def save_checkpoint(output_dir, epoch, model, optimizer, lr_scheduler, scaler=None):
@@ -44,11 +45,9 @@ def trainval_cityscapes(
     print('Building datasets...', end='', flush=True)
     train_dataset, val_dataset = get_cityscapes_dataset(cityscapes_root)
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
-        collate_fn=collate_fn)
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers,
-        collate_fn=collate_fn)
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
     print('done', flush=True)
 
     # Make model
@@ -81,7 +80,7 @@ def trainval_cityscapes(
     step = 0
     for epoch in range(epochs):
         # Train for an epoch
-        train_one_epoch(model, optimizer, train_loader, device, epoch, step, metrics=metrics, scaler=scaler)
+        step = train_one_epoch(model, optimizer, train_loader, device, epoch, step, metrics=metrics, scaler=scaler)
         lr_scheduler.step()
         metrics.reset()
 
@@ -100,22 +99,49 @@ def trainval_cityscapes(
 
 
 if __name__ == '__main__':
-    root = 'cityscapes'
-    out_dir = 'checkpoints'
-    epochs = 200
-    eval_interval = 10
-    batch_size = 16
-    lr = 0.02
-    momentum = 0.9
-    weight_decay = 0.0001
+    import json
+    import argparse
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('name', type=str, help='Name for the training run')
+    parser.add_argument('-r', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
+    parser.add_argument('-c', '--copy_paste', action='store_true', help='Flag to enable Copy-Paste augmentation')
+    parser.add_argument('-e', '--epochs', type=int, default=200, help='Training epochs')
+    parser.add_argument('-i', '--eval_interval', type=int, default=10, help='Interval between evaluations, in epochs')
+    parser.add_argument('-b', '--batch_size', type=int, default=16, help='Training batch size')
+    parser.add_argument('-l', '--lr', type=float, default=0.02, help='Learning rate')
+    parser.add_argument('-m', '--momentum', type=float, default=0.9, help='Optimizer momentum')
+    parser.add_argument('-w', '--weight_decay', type=float, default=0.0001, help='Optimizer weight decay')
+    parser.add_argument('-s', '--step_size', type=int, default=100,
+                        help='Number of epochs between step learning rate decay')
+    parser.add_argument('-g', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
+    parser.add_argument('-d', '--gpu_device', type=int, default=0, help='GPU index')
+    args = parser.parse_args()
+
+    # Block Copy-Paste training - not yet implemented
+    if args.copy_paste:
+        raise NotImplementedError
+
+    # Make output directory and get device ID
+    output_dir = os.path.join(EXPERIMENT_DIR, args.name)
+    os.makedirs(output_dir)
+    device = 'cuda:{}'.format(args.gpu_device)
+
+    # Dump parameters to output directory
+    with open(os.path.join(output_dir, 'run_settings.json'), 'w') as f:
+        json.dump(vars(args), f)
+
+    # Run training
     trainval_cityscapes(
-        root,
-        out_dir,
-        epochs=epochs,
-        eval_interval=eval_interval,
-        batch_size=batch_size,
-        lr=lr,
-        momentum=momentum,
-        weight_decay=weight_decay
+        args.root,
+        output_dir,
+        epochs=args.epochs,
+        eval_interval=args.eval_interval,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+        step_size=args.step_size,
+        gamma=args.gamma,
+        device=device
     )

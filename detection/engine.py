@@ -52,6 +52,8 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, step, metrics=
         metrics.update(loss_dict)
         metrics.log(step, epoch)
 
+    return step
+
 
 def _get_iou_types(model):
     model_without_ddp = model

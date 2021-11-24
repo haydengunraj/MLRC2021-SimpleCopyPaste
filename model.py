@@ -3,7 +3,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 
-def mask_rcnn(num_classes, pretrained=False, pretrained_backbone=False, min_size=1024, max_size=2048):
+def mask_rcnn(num_classes, pretrained=False, pretrained_backbone=False, min_size=512, max_size=1024):
     # Load Mask R-CNN with optional pretraining
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(
         pretrained=pretrained, pretrained_backbone=pretrained_backbone, min_size=min_size, max_size=max_size)
