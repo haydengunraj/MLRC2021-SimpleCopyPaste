@@ -113,11 +113,13 @@ class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
 
         # Select object indices from second image
         num_objs = len(src_target['labels'])
+        if not num_objs:
+            return image, target
         obj_indices = np.arange(num_objs, dtype=np.int32)  # all
         if self.selection_mode == _INSTANCE_SELECTION_MODES[0]:  # one
             obj_indices = np.atleast_1d(np.random.choice(obj_indices))
         elif self.selection_mode == _INSTANCE_SELECTION_MODES[1]:  # random subset
-            num_inst = np.random.randint(1, num_objs)
+            num_inst = np.random.randint(1, num_objs + 1)
             obj_indices = np.random.choice(obj_indices, num_inst, replace=False)
 
         # Get overall mask of instances
