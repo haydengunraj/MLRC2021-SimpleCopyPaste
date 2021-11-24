@@ -117,7 +117,7 @@ class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
         if self.selection_mode == _INSTANCE_SELECTION_MODES[0]:  # one
             obj_indices = np.atleast_1d(np.random.choice(obj_indices))
         elif self.selection_mode == _INSTANCE_SELECTION_MODES[1]:  # random subset
-            num_inst = np.random.randint(0, num_objs)
+            num_inst = np.random.randint(1, num_objs)
             obj_indices = np.random.choice(obj_indices, num_inst, replace=False)
 
         # Get overall mask of instances
@@ -215,20 +215,29 @@ def update_occluded_masks(target, new_masks, occluded_obj_thresh):
     new_mask_sizes = torch.sum(new_masks, dim=(1, 2))
     good_indices = torch.nonzero(new_mask_sizes > occluded_obj_thresh, as_tuple=True)[0]
 
-    # Update bounding boxes and areas
+    # Update bounding boxes and areas, checking
+    # for degenerate bounding boxes as well
+    valid_box_indices = []
     for i in good_indices:
         y, x = torch.nonzero(new_masks[i], as_tuple=True)
-        target['boxes'][i, 0] = x.min()
-        target['boxes'][i, 1] = y.min()
-        target['boxes'][i, 2] = x.max()
-        target['boxes'][i, 3] = y.max()
-        target['area'][i] = (target['boxes'][i, 3] - target['boxes'][i, 1])*(
-                target['boxes'][i, 2] - target['boxes'][i, 0])
+        xmin = x.min()
+        ymin = y.min()
+        xmax = x.max()
+        ymax = y.max()
+        if xmin < xmax and ymin < ymax:
+            valid_box_indices.append(i)
+            target['boxes'][i, 0] = x.min()
+            target['boxes'][i, 1] = y.min()
+            target['boxes'][i, 2] = x.max()
+            target['boxes'][i, 3] = y.max()
+            target['area'][i] = (target['boxes'][i, 3] - target['boxes'][i, 1])*(
+                    target['boxes'][i, 2] - target['boxes'][i, 0])
     target['masks'] = new_masks
 
     # Remove occluded objects from target
+    valid_box_indices = torch.as_tensor(valid_box_indices, dtype=torch.int64)
     for key in ('labels', 'boxes', 'masks', 'area', 'iscrowd'):
-        target[key] = target[key][good_indices]
+        target[key] = target[key][valid_box_indices]
 
     return target
 
