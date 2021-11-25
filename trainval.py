@@ -43,13 +43,15 @@ def trainval_cityscapes(
         num_workers=4,
         device='cuda:0'
 ):
+    """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Setup device
     device = torch.device(device)
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
-    train_dataset, val_dataset = get_cityscapes_dataset(
-        cityscapes_root, jitter_mode=jitter_mode, copy_paste=copy_paste)
+    train_dataset = get_cityscapes_dataset(
+        cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste)
+    val_dataset = get_cityscapes_dataset(cityscapes_root, 'val')
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
@@ -105,9 +107,9 @@ def trainval_cityscapes(
         metrics.reset()
 
         if not ((epoch + 1) % eval_interval):
-            # Run eval process
-            coco_evaluator = evaluate(model, val_loader, device=device)
+            # Save weights and run evaluation
             save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler)
+            coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
             for iou_type, coco_eval in coco_evaluator.coco_eval.items():

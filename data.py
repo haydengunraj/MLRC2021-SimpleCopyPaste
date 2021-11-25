@@ -263,16 +263,20 @@ def get_transform(is_training, jitter_mode='standard'):
     return T.Compose(transforms)
 
 
-def get_cityscapes_dataset(root, jitter_mode='standard', copy_paste=True):
+def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True):
     """Helper to create Cityscapes train/val datasets"""
-    train_tform = get_transform(True, jitter_mode=jitter_mode)
-    if copy_paste:
-        train_dataset = CityscapesCopyPasteInstanceDataset(
-            root=root, split='train', transforms=train_tform)
+    if split == 'train':
+        train_tform = get_transform(True, jitter_mode=jitter_mode)
+        if copy_paste:
+            dataset = CityscapesCopyPasteInstanceDataset(
+                root=root, split='train', transforms=train_tform)
+        else:
+            dataset = CityscapesInstanceDataset(
+                root=root, split='train', transforms=train_tform)
+    elif split == 'val':
+        dataset = CityscapesInstanceDataset(
+            root=root, split='val', transforms=get_transform(False))
     else:
-        train_dataset = CityscapesInstanceDataset(
-            root=root, split='train', transforms=train_tform)
-    val_dataset = CityscapesInstanceDataset(
-        root=root, split='val', transforms=get_transform(False))
+        raise ValueError('Invalid split: {}'.format(split))
 
-    return train_dataset, val_dataset
+    return dataset
