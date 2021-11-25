@@ -141,6 +141,7 @@ if __name__ == '__main__':
                         help='Number of epochs between step learning rate decay')
     parser.add_argument('-ga', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
     parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
+    parser.add_argument('-nw', '--num_workers', type=int, default=24, help='Number of dataloader workers')
     args = parser.parse_args()
 
     # Make output directory, device ID, and checkpoint
@@ -168,5 +169,6 @@ if __name__ == '__main__':
         weight_decay=args.weight_decay,
         step_size=args.step_size,
         gamma=args.gamma,
+        num_workers=args.num_workers,
         device=device
     )
