@@ -49,6 +49,8 @@ def trainval_cityscapes(experiment_name, resume=False):
     # Make directories for logs and checkpoints
     log_dir = os.path.join(experiment_dir, 'logs')
     ckpt_dir = os.path.join(experiment_dir, 'checkpoints')
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(ckpt_dir, exist_ok=True)
 
     # Setup device
     device = torch.device('cuda:{}'.format(config['gpu_device']))

@@ -7,24 +7,6 @@ from model import mask_rcnn
 from data import get_cityscapes_dataset, NUM_CLASSES
 
 
-def draw_text(img, text,
-          font=cv2.FONT_HERSHEY_PLAIN,
-          pos=(0, 0),
-          font_scale=3,
-          font_thickness=2,
-          text_color=(0, 255, 0),
-          text_color_bg=(0, 0, 0)
-          ):
-
-    x, y = pos
-    text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
-    text_w, text_h = text_size
-    cv2.rectangle(img, pos, (x + text_w, y + text_h), text_color_bg, -1)
-    cv2.putText(img, text, (x, y + text_h + font_scale - 1), font, font_scale, text_color, font_thickness)
-
-    return text_size
-
-
 def _format_instance_dict(instance_dict):
     """Convert Torch detections/annotations to numpy"""
     # Convert to numpy arrays
@@ -38,7 +20,16 @@ def _format_instance_dict(instance_dict):
     return instance_dict
 
 
-def overlay_masks(image, instance_dict, classes, alpha=0.3):
+def outline_mask(image, mask, colour=(255, 255, 255)):
+    """Draws an outline around a mask"""
+    if mask.dtype == bool:
+        mask = mask.astype(np.uint8)
+    contours = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)[0]
+    cv2.drawContours(image, contours, -1, colour, thickness=2)
+
+
+def overlay_masks(image, instance_dict, classes, alpha=0.4):
+    """Overlays semi-transparent instance masks on an image"""
     if len(instance_dict['labels']):
         # Make RGB mask for overlay
         masks = instance_dict['masks']
@@ -60,44 +51,42 @@ def overlay_masks(image, instance_dict, classes, alpha=0.3):
         blended = image.astype(np.float32)*(1 - alpha_mask) + rgb_mask*alpha_mask
         blended = blended.astype(np.uint8)
 
+        # Add white outlines to instances
+        for mask in masks:
+            outline_mask(blended, mask)
+
         return blended
     else:
         return image
 
 
-def overlay_bboxes(image, instance_dict, classes):
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.5
-    font_thickness = 1
-    lower_offset = font_thickness + 4
-    text_colour = (255, 255, 255)
+def overlay_bboxes(image, instance_dict, classes, colour=(255, 255, 255),
+                   font=cv2.FONT_HERSHEY_SIMPLEX, font_scale=0.5, font_thickness=1):
+    """Overlays bounding boxes on an image"""
     if len(instance_dict['labels']):
         for i, (cls_idx, box) in enumerate(zip(instance_dict['labels'], instance_dict['boxes'])):
-            # Get class info
+            # Get class name
             cls = classes[cls_idx]
-            colour = cls.color
             name = cls.name
 
             # Draw bbox
             up_left, low_right = tuple(box[:2]), tuple(box[2:])
-            cv2.rectangle(image, up_left, low_right, colour, 2)
+            cv2.rectangle(image, up_left, low_right, colour, 1)
 
             # Add bbox label
             box_label = name
             if 'scores' in instance_dict:
-                box_label += ' ({:.3f})'.format(instance_dict['scores'][i])
-            text_size, _ = cv2.getTextSize(box_label, font, font_scale, font_thickness)
-            text_w, text_h = text_size
-            cv2.rectangle(
-                image, up_left, (up_left[0] + text_w, up_left[1] + text_h + lower_offset), colour, -1)
+                box_label += '-{:.2f}'.format(instance_dict['scores'][i])
+
             cv2.putText(
-                image, box_label, (up_left[0], up_left[1] + text_h),
-                font, font_scale, text_colour, font_thickness)
+                image, box_label, (up_left[0], up_left[1] - 2*font_thickness),
+                font, font_scale, colour, font_thickness)
 
     return image
 
 
-def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=True, num_vis=100, device='cuda:0'):
+def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=True,
+                         num_vis=100, score_thresh=0.5, device='cuda:0'):
     """Makes visualizations of a trained Mask-RCNN model's predictions"""
     # Setup device
     device = torch.device(device)
@@ -129,6 +118,9 @@ def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=
             # Run model
             detections = model(image.unsqueeze(0).to(device))[0]
             detections = _format_instance_dict(detections)
+            valid_idx = detections['scores'] >= score_thresh
+            for key in ('boxes', 'masks', 'labels', 'scores'):
+                detections[key] = detections[key][valid_idx]
 
             # Make ground-truth image
             image = np.moveaxis(image.cpu().numpy()*255, 0, -1).astype(np.uint8)
