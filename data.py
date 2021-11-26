@@ -13,10 +13,11 @@ _INSTANCE_SELECTION_MODES = ('one', 'subset', 'all')
 class CityscapesInstanceDataset(Cityscapes):
     """Modifies the torchvision Cityscapes dataset class to
      use the target format of torchvision detection models"""
-    def __init__(self, root, split='train', transforms=None, clean=True):
+    def __init__(self, root, split='train', transforms=None, clean=True, image_size=None):
         super().__init__(
             root=root, split=split, mode='fine', target_type='instance', transforms=None)
         self.transforms = transforms
+        self.image_size = tuple(image_size) if image_size is not None else image_size
         if split == 'train' and clean:
             self._remove_images_without_annotations()
 
@@ -32,9 +33,13 @@ class CityscapesInstanceDataset(Cityscapes):
 
     def _get_target(self, index):
         """Helper to convert instance ID masks to target dicts"""
-        # Get object instance ids
+        # Load and resize instance mask
         instance_mask = Image.open(self.targets[index][0])
+        if self.image_size is not None and self.image_size != instance_mask.size:
+            instance_mask = instance_mask.resize(self.image_size, resample=Image.NEAREST)
         instance_mask = np.asarray(instance_mask)
+
+        # Get object instance ids
         instance_mask[instance_mask < 1000] = 0
         object_ids = np.unique(instance_mask)
         object_ids = object_ids[1:]
@@ -77,6 +82,8 @@ class CityscapesInstanceDataset(Cityscapes):
     def __getitem__(self, index):
         # Load image and create target
         image = Image.open(self.images[index]).convert('RGB')
+        if self.image_size is not None and self.image_size != image.size:
+            image = image.resize(self.image_size, resample=Image.BILINEAR)
         target = self._get_target(index)
 
         # Apply transforms
@@ -88,10 +95,10 @@ class CityscapesInstanceDataset(Cityscapes):
 
 class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
     """Modifies the CityscapesInstanceDataset to add Copy-Paste Augmentation"""
-    def __init__(self, root, split='train', transforms=None, clean=True, selection_mode='subset',
+    def __init__(self, root, split='train', transforms=None, clean=True, image_size=None, selection_mode='subset',
                  occluded_obj_thresh=20, p=0.5):
         super().__init__(
-            root=root, split=split, transforms=transforms, clean=clean)
+            root=root, split=split, transforms=transforms, clean=clean, image_size=image_size)
         if selection_mode not in _INSTANCE_SELECTION_MODES:
             raise ValueError('Invalid selection_mode: {}. Must be one of: {}'.format(
                 selection_mode, _INSTANCE_SELECTION_MODES))
@@ -263,19 +270,19 @@ def get_transform(is_training, jitter_mode='standard'):
     return T.Compose(transforms)
 
 
-def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True):
+def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True, image_size=None):
     """Helper to create Cityscapes train/val datasets"""
     if split == 'train':
         train_tform = get_transform(True, jitter_mode=jitter_mode)
         if copy_paste:
             dataset = CityscapesCopyPasteInstanceDataset(
-                root=root, split='train', transforms=train_tform)
+                root=root, split='train', transforms=train_tform, image_size=image_size)
         else:
             dataset = CityscapesInstanceDataset(
-                root=root, split='train', transforms=train_tform)
+                root=root, split='train', transforms=train_tform, image_size=image_size)
     elif split == 'val':
         dataset = CityscapesInstanceDataset(
-            root=root, split='val', transforms=get_transform(False))
+            root=root, split='val', transforms=get_transform(False), image_size=image_size)
     else:
         raise ValueError('Invalid split: {}'.format(split))
 

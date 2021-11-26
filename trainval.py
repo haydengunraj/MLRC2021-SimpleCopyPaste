@@ -40,7 +40,7 @@ def trainval_cityscapes(
         weight_decay=0.0005,
         step_size=50,
         gamma=0.1,
-        num_workers=4,
+        num_workers=16,
         device='cuda:0'
 ):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
@@ -50,7 +50,7 @@ def trainval_cityscapes(
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
     train_dataset = get_cityscapes_dataset(
-        cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste)
+        cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste, image_size=(1024, 512))
     val_dataset = get_cityscapes_dataset(cityscapes_root, 'val')
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
@@ -95,7 +95,7 @@ def trainval_cityscapes(
         metrics.append(ScalarMetric(loss_key, log_interval=50, scalar_key=loss_key))
     metrics = MetricManager(
         os.path.join(output_dir, 'logs'),
-        metrics=metrics, purge_step=(step if step else None)
+        metrics=metrics, purge_step=(step + 1 if step else None)
     )
 
     # Main training/val loop
@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
     # Make output directory, device ID, and checkpoint
     output_dir = os.path.join(EXPERIMENT_DIR, args.name)
-    os.makedirs(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     device = 'cuda:{}'.format(args.gpu_device)
     checkpoint = args.checkpoint if args.checkpoint else None
 
