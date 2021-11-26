@@ -1,10 +1,13 @@
 import torch
+from torch._C import Value
 import torch.nn as nn
 import numpy as np
 from PIL import Image
+from torch.utils.data.dataset import Dataset
 from torchvision.datasets import Cityscapes
 from torchvision.transforms import functional as F
 from detection import transforms as T
+import glob
 
 NUM_CLASSES = 11
 _INSTANCE_SELECTION_MODES = ('one', 'subset', 'all')
@@ -141,6 +144,27 @@ class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
 
         return image, target
 
+class CityScapesCopyPasteAugmentedDataset(Dataset):
+    def __init__(self, load_path):
+        self.load_path = load_path
+
+        # Glob file names in directory
+        self.data_files = sorted(glob.glob(f'{self.load_path}/data_*'))
+        self.target_files = sorted(glob.glob(f'{self.load_path}/target_*'))
+
+        if len(self.data_files) != len(self.target_files):
+            raise ValueError(f'Dataset {load_path} corrupted. Num data files '\
+                '{len(self.data_files)} does not match num target files' \
+                    '{len(self.target_files)}.')
+
+    def __len__(self):
+        return len(self.data_files)
+
+    def __getitem__(self, idx):
+        data = torch.load(self.data_files[idx])
+        target = torch.load(self.target_files[idx])
+
+        return data, target
 
 class RandomScaleJitter(nn.Module):
     """Implements random scale jitter"""
@@ -278,5 +302,18 @@ def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True)
             root=root, split='val', transforms=get_transform(False))
     else:
         raise ValueError('Invalid split: {}'.format(split))
+
+    return dataset
+
+def load_saved_augmented_dataset(aug_dataset_ckpt_path, split):
+    """Loads previously saved split for CityScapes dataset augmented with CopyPaste."""
+    
+    # Path to augmented dataset on disk.
+    load_path = f'{aug_dataset_ckpt_path}/{split}'
+
+    if split != 'train' and split != 'val':
+        raise ValueError(f'Unexpected split received. Cannot load {load_path}.')
+    
+    dataset = CityScapesCopyPasteAugmentedDataset(load_path=load_path)
 
     return dataset

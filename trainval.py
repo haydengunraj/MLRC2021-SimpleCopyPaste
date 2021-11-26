@@ -1,11 +1,18 @@
 import os
+from shutil import copy
 import torch
+import torch.nn as nn
+from torch.serialization import save
+torch.multiprocessing.set_sharing_strategy('file_system')
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
-
 from model import mask_rcnn
-from data import get_cityscapes_dataset, NUM_CLASSES
+from data import get_cityscapes_dataset, NUM_CLASSES, load_saved_augmented_dataset
 from metrics import MetricManager, ScalarMetric
+from pathlib import Path
+from multiprocessing import Pool
+from itertools import repeat
+
 
 TORCH_HOME = 'weights'
 LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg')
@@ -25,6 +32,49 @@ def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, sca
         checkpoint['scaler'] = scaler.state_dict()
     torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch)))
 
+def get_aug_dataset_ckpt_path(save_dir, jitter_mode, copy_paste):
+    return f'{save_dir}/{jitter_mode}_{copy_paste}'
+
+def save_aug_to_disk(result):
+    """Saves a result (one item from dataset) to disk."""
+    (data, target), ckpt_path, idx = result
+
+    torch.save(data, f'{ckpt_path}/data_{idx}')
+    torch.save(target, f'{ckpt_path}/target_{idx}')
+
+
+def save_augmented_dataset(train_dataset, val_dataset, jitter_mode, 
+                            copy_paste, num_workers, save_dir='aug_dataset'):
+    """Saves augmented dataset to disk asynchronously to speed up processing for future experiments."""
+    aug_dataset_ckpt_path = get_aug_dataset_ckpt_path(save_dir, jitter_mode, copy_paste)
+    aug_dataset_ckpt_path_train = f'{aug_dataset_ckpt_path}/train'
+    aug_dataset_ckpt_path_val = f'{aug_dataset_ckpt_path}/val'
+    Path(aug_dataset_ckpt_path_train).mkdir(parents=True, exist_ok=True)
+    Path(aug_dataset_ckpt_path_val).mkdir(parents=True, exist_ok=True)
+
+    train_idx = list(range(0, len(train_dataset)))
+    val_idx = list(range(0, len(val_dataset)))
+
+    with Pool(num_workers) as pool:
+        pool.starmap(save_aug_to_disk, zip(train_dataset, 
+            repeat(aug_dataset_ckpt_path_train), train_idx)
+        )
+    with Pool(num_workers) as pool:
+        pool.starmap(save_aug_to_disk, zip(val_dataset, 
+            repeat(aug_dataset_ckpt_path_val), val_idx)
+        )
+
+def load_saved_augmentations(jitter_mode, copy_paste, load_dir='aug_dataset'):
+    """Loads dataset with already augmented data. 
+    
+    Returns train/val split.
+    """
+    aug_dataset_ckpt_path = get_aug_dataset_ckpt_path(load_dir, jitter_mode, copy_paste)
+    print(f'Loading saved dataset from {aug_dataset_ckpt_path}')
+    train_dataset = load_saved_augmented_dataset(aug_dataset_ckpt_path, split='train')
+    val_dataset = load_saved_augmented_dataset(aug_dataset_ckpt_path, split='val')
+
+    return train_dataset, val_dataset
 
 def trainval_cityscapes(
         cityscapes_root,
@@ -41,27 +91,40 @@ def trainval_cityscapes(
         step_size=50,
         gamma=0.1,
         num_workers=4,
-        device='cuda:0'
+        device='cuda:0',
+        save_augmentation=False,
+        use_saved_augmentation=False,
+        multi_gpu_enabled=False
 ):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Setup device
     device = torch.device(device)
 
     # Make datasets and data loaders
-    print('Building datasets...', end='', flush=True)
-    train_dataset = get_cityscapes_dataset(
-        cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste)
-    val_dataset = get_cityscapes_dataset(cityscapes_root, 'val')
+    if use_saved_augmentation:
+        train_dataset, val_dataset = load_saved_augmentations(jitter_mode, copy_paste)
+    else:
+        print('Building datasets...', end='', flush=True)
+        train_dataset = get_cityscapes_dataset(
+            cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste)
+        val_dataset = get_cityscapes_dataset(cityscapes_root, 'val')
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
     print('done', flush=True)
 
+    if save_augmentation:
+        print('Saving augmented dataset')
+        save_augmented_dataset(train_dataset, val_dataset, jitter_mode, copy_paste, num_workers)
+    
     # Make model
     print('Building model...', end='')
     os.environ['TORCH_HOME'] = TORCH_HOME
     model = mask_rcnn(NUM_CLASSES, pretrained=False, pretrained_backbone=True)
+
+    if multi_gpu_enabled:
+        model = nn.DataParallel(model)
     model.to(device)
     print('done')
 
@@ -142,6 +205,9 @@ if __name__ == '__main__':
     parser.add_argument('-ga', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
     parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
     parser.add_argument('-nw', '--num_workers', type=int, default=24, help='Number of dataloader workers')
+    parser.add_argument('-sa', '--save_aug', action='store_true', help='Flag to save augmented dataset after applying copy-paste.')
+    parser.add_argument('-la', '--load_aug', action='store_true', help='Flag to load augmented dataset instead of rebuilding.')
+    parser.add_argument('-mg', '--multi_gpu', action='store_true', help='Flag to parallelize training across all GPUs on machine.')
     args = parser.parse_args()
 
     # Make output directory, device ID, and checkpoint
@@ -170,5 +236,8 @@ if __name__ == '__main__':
         step_size=args.step_size,
         gamma=args.gamma,
         num_workers=args.num_workers,
-        device=device
+        device=device,
+        save_augmentation=args.save_aug,
+        use_saved_augmentation=args.load_aug,
+        multi_gpu_enabled=args.multi_gpu
     )
