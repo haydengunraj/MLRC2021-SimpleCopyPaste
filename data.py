@@ -6,7 +6,7 @@ from torchvision.datasets import Cityscapes
 from torchvision.transforms import functional as F
 from detection import transforms as T
 
-NUM_CLASSES = 11
+NUM_CLASSES = 9  # 8 + background
 _INSTANCE_SELECTION_MODES = ('one', 'subset', 'all')
 
 
@@ -40,7 +40,9 @@ class CityscapesInstanceDataset(Cityscapes):
         instance_mask = np.asarray(instance_mask)
 
         # Get object instance ids
-        instance_mask[instance_mask < 1000] = 0
+        # Here we remove non-instance classes as well as the caravan and trailer classes
+        to_remove = (instance_mask < 1000) | ((instance_mask >= 29000) & (instance_mask < 31000))
+        instance_mask[to_remove] = 0
         object_ids = np.unique(instance_mask)
         object_ids = object_ids[1:]
 
@@ -67,10 +69,18 @@ class CityscapesInstanceDataset(Cityscapes):
         else:
             areas = torch.tensor([], dtype=torch.float32)
 
+        # Instances are labelled as 1000*class + inst_number, and instance classes start at index 24
+        # To map to class indices (i.e., model labels), we have to integer divide by 1000 and subtract 23.
+        # Additionally, the caravan (29) and trailer (30) classes are not considered, so
+        # for classes above these we also have to subtract 2.
+        labels = object_ids//1000
+        labels[labels > 30] -= 2
+        labels -= 23
+
         # Create target dict
         target = {
             'image_id': torch.tensor([index]),
-            'labels': torch.as_tensor(object_ids[good_indices]//1000 - 23, dtype=torch.int64),
+            'labels': torch.as_tensor(labels, dtype=torch.int64),
             'boxes': boxes,
             'masks': torch.as_tensor(masks[good_indices], dtype=torch.uint8),
             'area': areas,
@@ -276,13 +286,13 @@ def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True,
         train_tform = get_transform(True, jitter_mode=jitter_mode)
         if copy_paste:
             dataset = CityscapesCopyPasteInstanceDataset(
-                root=root, split='train', transforms=train_tform, image_size=image_size)
+                root=root, split=split, transforms=train_tform, image_size=image_size)
         else:
             dataset = CityscapesInstanceDataset(
-                root=root, split='train', transforms=train_tform, image_size=image_size)
-    elif split == 'val':
+                root=root, split=split, transforms=train_tform, image_size=image_size)
+    elif split in ('val', 'test'):
         dataset = CityscapesInstanceDataset(
-            root=root, split='val', transforms=get_transform(False), image_size=image_size)
+            root=root, split=split, transforms=get_transform(False), image_size=image_size)
     else:
         raise ValueError('Invalid split: {}'.format(split))
 

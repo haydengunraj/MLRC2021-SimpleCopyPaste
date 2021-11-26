@@ -98,7 +98,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     if resume:
         latest_ckpt = get_latest_checkpoint(experiment_dir)
         if latest_ckpt is not None:
-            state_dict = torch.load(config['checkpoint'])
+            state_dict = torch.load(config['checkpoint'], map_location=device)
             model.load_state_dict(state_dict['model'])
             optimizer.load_state_dict(state_dict['optimizer'])
             lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
@@ -106,7 +106,7 @@ def trainval_cityscapes(experiment_name, resume=False):
             init_epoch = state_dict['epoch'] + 1
             step = state_dict['step']
     elif config['checkpoint'] is not None:
-        state_dict = torch.load(config['checkpoint'])
+        state_dict = torch.load(config['checkpoint'], map_location=device)
         model.load_state_dict(state_dict['model'])
 
     # Make metric manager
@@ -131,7 +131,7 @@ def trainval_cityscapes(experiment_name, resume=False):
         lr_scheduler.step()
         metrics.reset()
 
-        if not ((epoch + 1) % config['eval_interval']):
+        if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
             save_checkpoint(ckpt_dir, epoch, step, model, optimizer, lr_scheduler, scaler)
             coco_evaluator = evaluate(model, val_loader, device=device)

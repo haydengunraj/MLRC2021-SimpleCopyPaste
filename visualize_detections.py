@@ -13,6 +13,7 @@ def _format_instance_dict(instance_dict):
     instance_dict = {key: val.cpu().numpy() for key, val in instance_dict.items()}
 
     # Add label offsets and convert masks to boolean arrays
+    instance_dict['labels'][instance_dict['labels'] > 5] += 2
     instance_dict['labels'] += 23
     instance_dict['masks'] = instance_dict['masks'] >= 0.5
     instance_dict['boxes'] = instance_dict['boxes'].astype(np.int32)
@@ -102,7 +103,7 @@ def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=
     os.makedirs(output_dir, exist_ok=True)
 
     # Load checkpoint
-    state_dict = torch.load(checkpoint)
+    state_dict = torch.load(checkpoint, map_location=device)
     model.load_state_dict(state_dict['model'])
     model.eval()
 
