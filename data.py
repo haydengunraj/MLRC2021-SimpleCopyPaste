@@ -73,7 +73,7 @@ class CityscapesInstanceDataset(Cityscapes):
         # To map to class indices (i.e., model labels), we have to integer divide by 1000 and subtract 23.
         # Additionally, the caravan (29) and trailer (30) classes are not considered, so
         # for classes above these we also have to subtract 2.
-        labels = object_ids//1000
+        labels = object_ids[good_indices]//1000
         labels[labels > 30] -= 2
         labels -= 23
 
