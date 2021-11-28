@@ -17,7 +17,7 @@ EXPERIMENT_DIR = 'experiments'
 def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler=None):
     """Saves a training checkpoint to allow training to be resumed"""
     checkpoint = {
-        'epoch': epoch + 1,
+        'epoch': epoch,
         'step': step,
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
@@ -25,7 +25,7 @@ def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, sca
     }
     if scaler is not None:
         checkpoint['scaler'] = scaler.state_dict()
-    torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch)))
+    torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch + 1)))
 
 
 def get_latest_checkpoint(experiment_dir):
@@ -123,7 +123,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     for epoch in range(init_epoch, config['epochs']):
         # Log learning rate
         metrics.writer.add_scalar(
-            metrics.train_prefix + 'lr', lr_scheduler.get_last_lr(), epoch + 1)
+            metrics.train_prefix + 'lr', lr_scheduler.get_last_lr(), step)
 
         # Train for an epoch
         step = train_one_epoch(
@@ -140,7 +140,7 @@ def trainval_cityscapes(experiment_name, resume=False):
             for iou_type, coco_eval in coco_evaluator.coco_eval.items():
                 mean_ap = coco_eval.stats[0]
                 iou_str = 'box_mAP' if iou_type == 'bbox' else 'mask_mAP'
-                metrics.writer.add_scalar(metrics.val_prefix + iou_str, mean_ap, epoch + 1)
+                metrics.writer.add_scalar(metrics.val_prefix + iou_str, mean_ap, step)
 
     return model
 
