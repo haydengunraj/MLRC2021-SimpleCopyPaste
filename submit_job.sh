@@ -1,12 +1,10 @@
 #!/bin/bash
+#SBATCH --account=def-mjshafie
 #SBATCH --nodes 1
 #SBATCH --gres=gpu:p100:1 # request a GPU
-
-#SBATCH --account=vqw-634
-#SBATCH --cpus-per-task=24 # increase this parameter and increase "--num_workers" accordingly to see the effect on performance
-
+#SBATCH --cpus-per-task=24
 #SBATCH --mem=16G      
-#SBATCH --time=24:0:0
+#SBATCH --time=0-24:00
 
 
 module load python/3.9.6
