@@ -2,6 +2,7 @@ import os
 import yaml
 import glob
 import torch
+from torch import nn
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
 
@@ -76,6 +77,8 @@ def trainval_cityscapes(experiment_name, resume=False):
         NUM_CLASSES, pretrained=config['pretrained'],
         pretrained_backbone=config['pretrained_backbone'],
         min_size=config['min_size'], max_size=config['max_size'])
+    print("Let's use", torch.cuda.device_count(), "GPUs!")
+    model = nn.DataParallel(model)
     model.to(device)
     print('done')
 
