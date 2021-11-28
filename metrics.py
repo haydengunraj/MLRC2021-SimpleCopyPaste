@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 class MetricManager:
     """Manages updating and logging of metrics"""
     def __init__(self, log_dir, metrics=None, print_metrics=True,
-                 train_prefix='train/', val_prefix='val/', **writer_kwargs):
+                 train_prefix='train/', val_prefix='val/', wandb_enabled=False, **writer_kwargs):
         self._validate_metrics(metrics)
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
@@ -15,6 +15,7 @@ class MetricManager:
         self.print_metrics = print_metrics
         self.train_prefix = train_prefix
         self.val_prefix = val_prefix
+        self.wandb_enabled = wandb_enabled
 
     def train(self, training=True):
         """Set the training mode of the manager"""
@@ -36,6 +37,10 @@ class MetricManager:
         for metric in self.metrics:
             metric.reset()
 
+    def publish_to_wandb(self, wandb_metrics):
+        if self.wandb_enabled:
+            wandb.log(wandb_metrics)
+
     def log(self, step, epoch=None):
         """Log the current values"""
         # Initialize log string if required
@@ -49,6 +54,8 @@ class MetricManager:
         # Get tag prefix for current mode
         tag_prefix = self.train_prefix if self.training else self.val_prefix
         print_ = False
+
+        wandb_metrics = {}
         for metric in self.metrics:
             # Metrics are logged if we are in eval mode or if we are in training mode and are at a logging step
             if not self.training or (self.training and not step % metric.log_interval):
@@ -56,9 +63,15 @@ class MetricManager:
                 if self.print_metrics:
                     value = metric.value
                     if value is not None:
+                        wandb_metrics[metric.name] = value
                         log_str += ', {}: {:.3f}'.format(metric.name, value)
+
                 metric.reset()
                 print_ = True
+        
+        # Log metrics to wandb if enabled
+        self.publish_to_wandb(wandb_metrics)
+
         if self.print_metrics and print_:
             print(log_str + ']', flush=True)
 

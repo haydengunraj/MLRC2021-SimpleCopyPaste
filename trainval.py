@@ -1,8 +1,9 @@
 import os
 import torch
+import pytorch_lightning as pl
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
-
+import wandb
 from model import mask_rcnn
 from data import get_cityscapes_dataset, NUM_CLASSES
 from metrics import MetricManager, ScalarMetric
@@ -41,7 +42,8 @@ def trainval_cityscapes(
         step_size=50,
         gamma=0.1,
         num_workers=16,
-        device='cuda:0'
+        device='cuda:0',
+        enable_wandb=False
 ):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Setup device
@@ -64,6 +66,10 @@ def trainval_cityscapes(
     model = mask_rcnn(NUM_CLASSES, pretrained=False, pretrained_backbone=True)
     model.to(device)
     print('done')
+
+    # Hook model to wandb
+    if enable_wandb:
+        wandb.watch(model, log="gradients", log_freq=1000)
 
     # Make optimizer and LR scheduler
     print('Building optimizer...', end='')
@@ -95,7 +101,8 @@ def trainval_cityscapes(
         metrics.append(ScalarMetric(loss_key, log_interval=50, scalar_key=loss_key))
     metrics = MetricManager(
         os.path.join(output_dir, 'logs'),
-        metrics=metrics, purge_step=(step + 1 if step else None)
+        metrics=metrics, purge_step=(step + 1 if step else None),
+        wandb_enabled=enable_wandb
     )
 
     # Main training/val loop
@@ -142,6 +149,7 @@ if __name__ == '__main__':
     parser.add_argument('-ga', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
     parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
     parser.add_argument('-nw', '--num_workers', type=int, default=24, help='Number of dataloader workers')
+    parser.add_argument('-ew', '--enable_wandb', action='store_true', help='Enables logging to wandb')
     args = parser.parse_args()
 
     # Make output directory, device ID, and checkpoint
@@ -150,9 +158,14 @@ if __name__ == '__main__':
     device = 'cuda:{}'.format(args.gpu_device)
     checkpoint = args.checkpoint if args.checkpoint else None
 
+    args_dict = vars(args)
+
+    if args.enable_wandb:
+        wandb.init(project=args.name, entity="syde671-copy-paste", config=args_dict)
+
     # Dump parameters to output directory
     with open(os.path.join(output_dir, 'run_settings.json'), 'w') as f:
-        json.dump(vars(args), f)
+        json.dump(args_dict, f)
 
     # Run training
     trainval_cityscapes(
@@ -170,5 +183,6 @@ if __name__ == '__main__':
         step_size=args.step_size,
         gamma=args.gamma,
         num_workers=args.num_workers,
-        device=device
+        device=device,
+        enable_wandb=args.enable_wandb
     )

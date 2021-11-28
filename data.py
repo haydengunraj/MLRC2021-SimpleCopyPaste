@@ -37,7 +37,7 @@ class CityscapesInstanceDataset(Cityscapes):
         instance_mask = Image.open(self.targets[index][0])
         if self.image_size is not None and self.image_size != instance_mask.size:
             instance_mask = instance_mask.resize(self.image_size, resample=Image.NEAREST)
-        instance_mask = np.asarray(instance_mask)
+        instance_mask = np.array(instance_mask)
 
         # Get object instance ids
         instance_mask[instance_mask < 1000] = 0
