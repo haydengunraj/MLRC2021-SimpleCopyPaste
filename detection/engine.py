@@ -23,9 +23,13 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, step, metrics=
             optimizer, start_factor=warmup_factor, total_iters=warmup_iters
         )
 
+    count = 0
+    print("Max gpu mem usage at start: " + str(torch.cuda.max_memory_allocated(device=device)))
     for images, targets in data_loader:
         images = [image.to(device) for image in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        if (count == 0):
+            print("Max gpu mem usage before 1st loss calc: " + str(torch.cuda.max_memory_allocated(device=device)))
         with torch.cuda.amp.autocast(enabled=scaler is not None):
             loss_dict = model(images, targets)
             loss_dict['total_loss'] = sum(loss for loss in loss_dict.values())
@@ -35,6 +39,9 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, step, metrics=
         if not math.isfinite(loss_value):
             print('Loss is {}, stopping training'.format(loss_value))
             sys.exit(1)
+
+        if (count == 0):
+            print("Max gpu mem usage before optimization: " + str(torch.cuda.max_memory_allocated(device=device)))
 
         optimizer.zero_grad()
         if scaler is not None:
@@ -52,12 +59,19 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, step, metrics=
         metrics.update(loss_dict)
         metrics.log(step, epoch)
 
+        count+=1
+        if (count <= 3):
+            print("Max gpu mem usage: " + str(torch.cuda.max_memory_allocated(device=device)))
+
+
     return step
 
 
 def _get_iou_types(model):
     model_without_ddp = model
     if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        model_without_ddp = model.module
+    if isinstance(model, torch.nn.DataParallel):
         model_without_ddp = model.module
     iou_types = ["bbox"]
     if isinstance(model_without_ddp, torchvision.models.detection.MaskRCNN):

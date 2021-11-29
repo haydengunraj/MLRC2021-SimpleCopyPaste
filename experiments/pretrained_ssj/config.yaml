@@ -2,16 +2,16 @@
 data_root: cityscapes
 copy_paste: false
 jitter_mode: standard
-batch_size: 4
+batch_size: 8
 
 # Model Settings
-min_size: 1024
-max_size: 2048
+min_size: 512
+max_size: 1024
 pretrained: true
-pretrained_backbone: false
+pretrained_backbone: true
 
 # Training settings
-epochs: 33
+epochs: 11
 checkpoint: null
 eval_interval: 5
 log_interval: 50
@@ -20,9 +20,9 @@ log_interval: 50
 lr: 0.01
 momentum: 0.9
 weight_decay: 0.0001
-step_size: 24
+step_size: 8
 gamma: 0.1
 
 # Hardware settings
 gpu_device: 0
-num_workers: 8
+num_workers: 16
