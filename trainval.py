@@ -10,6 +10,8 @@ from model import mask_rcnn
 from data import get_cityscapes_dataset, NUM_CLASSES
 from metrics import MetricManager, ScalarMetric
 
+import detection.utils as utils
+
 TORCH_HOME = 'weights'
 LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg')
 EXPERIMENT_DIR = 'experiments'
@@ -37,8 +39,15 @@ def get_latest_checkpoint(experiment_dir):
     return None
 
 
-def trainval_cityscapes(experiment_name, resume=False):
+def trainval_cityscapes(args):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
+
+    # Setup params and Distributed mode (if needed)
+    experiment_name = args.experiment_name
+    resume=args.resume
+    utils.init_distributed_mode(args)
+    print(args)
+
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
     config_file = os.path.join(experiment_dir, 'config.yaml')
@@ -54,7 +63,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Setup device
-    device = torch.device('cuda:{}'.format(config['gpu_device']))
+    device = torch.device('cuda')
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
@@ -62,12 +71,26 @@ def trainval_cityscapes(experiment_name, resume=False):
         config['data_root'], 'train', jitter_mode=config['jitter_mode'],
         copy_paste=config['copy_paste'])
     val_dataset = get_cityscapes_dataset(config['data_root'], 'val')
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=config['batch_size'], shuffle=True,
-        num_workers=config['num_workers'], collate_fn=collate_fn)
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False,
-        num_workers=config['num_workers'], collate_fn=collate_fn)
+
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, config['batch_size']//args.world_size, drop_last=True)
+
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_sampler=train_batch_sampler, num_workers=config['num_workers'], collate_fn=utils.collate_fn
+        )
+
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=1, sampler=val_sampler, num_workers=config['num_workers'], collate_fn=utils.collate_fn
+        )
+    else:
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=config['batch_size'], shuffle=True,
+            num_workers=config['num_workers'], collate_fn=collate_fn)
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=1, shuffle=False,
+            num_workers=config['num_workers'], collate_fn=collate_fn)
     print('done', flush=True)
 
     # Make model
@@ -78,8 +101,15 @@ def trainval_cityscapes(experiment_name, resume=False):
         pretrained_backbone=config['pretrained_backbone'],
         min_size=config['min_size'], max_size=config['max_size'])
     print("Let's use", torch.cuda.device_count(), "GPUs!")
-    model = nn.DataParallel(model)
+    
     model.to(device)
+    if args.distributed:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    model_without_ddp = model
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
     print('done')
 
     # Make optimizer and LR scheduler
@@ -102,7 +132,7 @@ def trainval_cityscapes(experiment_name, resume=False):
         latest_ckpt = get_latest_checkpoint(experiment_dir)
         if latest_ckpt is not None:
             state_dict = torch.load(config['checkpoint'], map_location=device)
-            model.load_state_dict(state_dict['model'])
+            model_without_ddp.load_state_dict(state_dict['model'])
             optimizer.load_state_dict(state_dict['optimizer'])
             lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
             scaler.load_state_dict(state_dict['scaler'])
@@ -110,7 +140,7 @@ def trainval_cityscapes(experiment_name, resume=False):
             step = state_dict['step']
     elif config['checkpoint'] is not None:
         state_dict = torch.load(config['checkpoint'], map_location=device)
-        model.load_state_dict(state_dict['model'])
+        model_without_ddp.load_state_dict(state_dict['model'])
 
     # Make metric manager
     metrics = [ScalarMetric(
@@ -136,7 +166,7 @@ def trainval_cityscapes(experiment_name, resume=False):
 
         if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
-            save_checkpoint(ckpt_dir, epoch, step, model, optimizer, lr_scheduler, scaler)
+            save_checkpoint(ckpt_dir, epoch, step, model_without_ddp, optimizer, lr_scheduler, scaler)
             coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
@@ -154,6 +184,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_name', type=str, help='Name of experiment directory')
     parser.add_argument('-r', '--resume', action='store_true', help='Flag to resume training from latest checkpoint')
+    
+    # distributed training parameters
+    parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+    parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
     args = parser.parse_args()
 
-    trainval_cityscapes(args.experiment_name, resume=args.resume)
+    trainval_cityscapes(args)
