@@ -1,6 +1,6 @@
 import os
 from tensorboardX import SummaryWriter
-
+import wandb
 
 class MetricManager:
     """Manages updating and logging of metrics"""
