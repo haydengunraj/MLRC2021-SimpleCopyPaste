@@ -21,7 +21,7 @@ def evaluate_cityscapes(cityscapes_root, checkpoint, num_workers=4, device='cuda
     model.to(device)
 
     # Load checkpoint
-    state_dict = torch.load(checkpoint)
+    state_dict = torch.load(checkpoint, map_location=device)
     model.load_state_dict(state_dict['model'])
 
     # Run evaluation

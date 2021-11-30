@@ -59,7 +59,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     print('Building datasets...', end='', flush=True)
     train_dataset = get_cityscapes_dataset(
         config['data_root'], 'train', jitter_mode=config['jitter_mode'],
-        copy_paste=config['copy_paste'])
+        copy_paste=config['copy_paste'], image_size=(config['max_size'], config['min_size']))
     val_dataset = get_cityscapes_dataset(config['data_root'], 'val')
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], shuffle=True,
