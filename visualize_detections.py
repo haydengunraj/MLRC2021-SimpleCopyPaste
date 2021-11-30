@@ -3,8 +3,8 @@ import cv2
 import torch
 import numpy as np
 
-from model import mask_rcnn
-from data import get_cityscapes_dataset, NUM_CLASSES
+from model import maskrcnn_from_config
+from data import get_cityscapes_dataset
 
 
 def _format_instance_dict(instance_dict):
@@ -86,7 +86,7 @@ def overlay_bboxes(image, instance_dict, classes, colour=(255, 255, 255),
     return image
 
 
-def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=True,
+def visualize_cityscapes(cityscapes_root, checkpoint, config, output_dir, include_boxes=True,
                          num_vis=100, score_thresh=0.5, device='cuda:0'):
     """Makes visualizations of a trained Mask-RCNN model's predictions"""
     # Setup device
@@ -96,7 +96,7 @@ def visualize_cityscapes(cityscapes_root, checkpoint, output_dir, include_boxes=
     dataset = get_cityscapes_dataset(cityscapes_root, 'val')
 
     # Make model
-    model = mask_rcnn(NUM_CLASSES, pretrained=False, pretrained_backbone=False)
+    model = maskrcnn_from_config(config, override_pretraining=True)
     model.to(device)
 
     # Make output directory
@@ -147,7 +147,8 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('checkpoint', type=str, help='Checkpoint file')
+    parser.add_argument('-ck', '--checkpoint', type=str, help='Checkpoint file')
+    parser.add_argument('-cf', '--config_file', type=str, help='Configuration file used to build the model')
     parser.add_argument('-rt', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
     parser.add_argument('-op', '--output', type=str, default='visualizations', help='Output directory')
     parser.add_argument('-nv', '--num_visualizations', type=int, default=50,
@@ -160,6 +161,7 @@ if __name__ == '__main__':
     visualize_cityscapes(
         args.root,
         args.checkpoint,
+        args.config,
         args.output,
         include_boxes=(not args.no_bboxes),
         num_vis=args.num_visualizations,

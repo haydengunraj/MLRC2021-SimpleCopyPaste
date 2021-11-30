@@ -1,10 +1,11 @@
 # Dataset settings
 data_root: cityscapes
-copy_paste: true
-jitter_mode: standard
+copy_paste: false
+jitter_mode: large
 batch_size: 8
 
 # Model Settings
+backbone: resnet50_fpn
 min_size: 1024
 max_size: 2048
 pretrained: false
@@ -24,5 +25,5 @@ step_size: 49
 gamma: 0.1
 
 # Hardware settings
-gpu_device: 7
+gpu_device: 5
 num_workers: 32

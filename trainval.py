@@ -5,8 +5,8 @@ import torch
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
 
-from model import mask_rcnn
-from data import get_cityscapes_dataset, NUM_CLASSES
+from model import maskrcnn_from_config
+from data import get_cityscapes_dataset
 from metrics import MetricManager, ScalarMetric
 
 TORCH_HOME = 'weights'
@@ -72,10 +72,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     # Make model
     print('Building model...', end='')
     os.environ['TORCH_HOME'] = TORCH_HOME
-    model = mask_rcnn(
-        NUM_CLASSES, pretrained=config['pretrained'],
-        pretrained_backbone=config['pretrained_backbone'],
-        min_size=config['min_size'], max_size=config['max_size'])
+    model = maskrcnn_from_config(config)
     model.to(device)
     print('done')
 
