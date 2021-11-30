@@ -69,7 +69,7 @@ def trainval_cityscapes(
 
     # Hook model to wandb
     if enable_wandb:
-        wandb.watch(model, log="gradients", log_freq=1000)
+        wandb.watch(model, log="all", log_freq=1000)
 
     # Make optimizer and LR scheduler
     print('Building optimizer...', end='')
@@ -161,7 +161,10 @@ if __name__ == '__main__':
     args_dict = vars(args)
 
     if args.enable_wandb:
-        wandb.init(project=args.name, entity="syde671-copy-paste", config=args_dict)
+        wandb.init(project=args.name, entity="syde671-copy-paste", 
+                    config=args_dict)
+        wandb.tensorboard.patch(pytorch=True)
+        
 
     # Dump parameters to output directory
     with open(os.path.join(output_dir, 'run_settings.json'), 'w') as f:
