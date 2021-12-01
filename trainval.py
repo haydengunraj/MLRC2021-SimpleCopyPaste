@@ -17,7 +17,7 @@ LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 
 EXPERIMENT_DIR = 'experiments'
 
 
-def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler=None):
+def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler=None, enable_wandb=False):
     """Saves a training checkpoint to allow training to be resumed"""
     checkpoint = {
         'epoch': epoch,
@@ -28,7 +28,12 @@ def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, sca
     }
     if scaler is not None:
         checkpoint['scaler'] = scaler.state_dict()
-    torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch + 1)))
+
+    ckpt_path = os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch + 1))
+    torch.save(checkpoint, ckpt_path)
+
+    if enable_wandb:
+        wandb.save(ckpt_path)
 
 
 def get_latest_checkpoint(experiment_dir):
@@ -180,7 +185,7 @@ def trainval_cityscapes(args):
 
         if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
-            save_checkpoint(ckpt_dir, epoch, step, model_without_ddp, optimizer, lr_scheduler, scaler)
+            save_checkpoint(ckpt_dir, epoch, step, model_without_ddp, optimizer, lr_scheduler, scaler, args.enable_wandb)
             coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
