@@ -1,6 +1,6 @@
 # Dataset settings
 data_root: cityscapes
-copy_paste: false
+copy_paste: true
 jitter_mode: standard
 batch_size: 8
 
@@ -11,9 +11,9 @@ pretrained: true
 pretrained_backbone: true
 
 # Training settings
-epochs: 27
-checkpoint: experiments/pretrained_ssj/checkpoints/checkpoint-0022.pth
-eval_interval: 3
+epochs: 22
+checkpoint: null
+eval_interval: 4
 log_interval: 50
 
 # Optimizer settings
