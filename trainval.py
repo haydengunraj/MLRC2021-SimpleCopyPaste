@@ -1,6 +1,8 @@
 import os
+import yaml
+import glob
 import torch
-import pytorch_lightning as pl
+from torch import nn
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
 import wandb
@@ -8,13 +10,15 @@ from model import mask_rcnn
 from data import get_cityscapes_dataset, NUM_CLASSES
 from metrics import MetricManager, ScalarMetric
 
+import detection.utils as utils
+
 TORCH_HOME = 'weights'
 LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg')
 EXPERIMENT_DIR = 'experiments'
 
 
 def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler=None):
-    os.makedirs(output_dir, exist_ok=True)
+    """Saves a training checkpoint to allow training to be resumed"""
     checkpoint = {
         'epoch': epoch,
         'step': step,
@@ -24,47 +28,93 @@ def save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, sca
     }
     if scaler is not None:
         checkpoint['scaler'] = scaler.state_dict()
-    torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch)))
+    torch.save(checkpoint, os.path.join(output_dir, 'checkpoint-{:04d}.pth'.format(epoch + 1)))
 
 
-def trainval_cityscapes(
-        cityscapes_root,
-        output_dir,
-        checkpoint=None,
-        epochs=10,
-        eval_interval=5,
-        batch_size=2,
-        copy_paste=True,
-        jitter_mode='standard',
-        lr=0.005,
-        momentum=0.9,
-        weight_decay=0.0005,
-        step_size=50,
-        gamma=0.1,
-        num_workers=16,
-        device='cuda:0',
-        enable_wandb=False
-):
+def get_latest_checkpoint(experiment_dir):
+    """Gets the latest checkpoint for an experiment"""
+    checkpoints = sorted(glob.glob(os.path.join(experiment_dir, 'checkpoints', '*.pth')))
+    if len(checkpoints):
+        return checkpoints[-1]
+    return None
+
+
+def trainval_cityscapes(args):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
+    # Setup params and Distributed mode (if needed)
+    experiment_name = args.experiment_name
+    resume=args.resume
+    utils.init_distributed_mode(args)
+    print(args)
+
+    # Setup wandb (if needed)
+    if args.enable_wandb:
+        wandb.init(project=args.name, entity="syde671-copy-paste", 
+                    config=vars(args))
+        wandb.tensorboard.patch(pytorch=True, tensorboardX=True)
+
+    # Load configuration
+    experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
+    config_file = os.path.join(experiment_dir, 'config.yaml')
+    if not os.path.exists(config_file):
+        raise ValueError('Config file not found: {}'.format(config_file))
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Make directories for logs and checkpoints
+    log_dir = os.path.join(experiment_dir, 'logs')
+    ckpt_dir = os.path.join(experiment_dir, 'checkpoints')
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(ckpt_dir, exist_ok=True)
+
     # Setup device
-    device = torch.device(device)
+    device = torch.device('cuda')
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
     train_dataset = get_cityscapes_dataset(
-        cityscapes_root, 'train', jitter_mode=jitter_mode, copy_paste=copy_paste, image_size=(1024, 512))
-    val_dataset = get_cityscapes_dataset(cityscapes_root, 'val')
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn)
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_fn)
+        config['data_root'], 'train', jitter_mode=config['jitter_mode'],
+        copy_paste=config['copy_paste'])
+    val_dataset = get_cityscapes_dataset(config['data_root'], 'val')
+
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, config['batch_size']//args.world_size, drop_last=True)
+
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_sampler=train_batch_sampler, num_workers=config['num_workers'], collate_fn=utils.collate_fn
+        )
+
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=1, sampler=val_sampler, num_workers=config['num_workers'], collate_fn=utils.collate_fn
+        )
+    else:
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=config['batch_size'], shuffle=True,
+            num_workers=config['num_workers'], collate_fn=collate_fn)
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=1, shuffle=False,
+            num_workers=config['num_workers'], collate_fn=collate_fn)
     print('done', flush=True)
 
     # Make model
     print('Building model...', end='')
     os.environ['TORCH_HOME'] = TORCH_HOME
-    model = mask_rcnn(NUM_CLASSES, pretrained=False, pretrained_backbone=True)
+    model = mask_rcnn(
+        NUM_CLASSES, pretrained=config['pretrained'],
+        pretrained_backbone=config['pretrained_backbone'],
+        min_size=config['min_size'], max_size=config['max_size'])
+    print("Let's use", torch.cuda.device_count(), "GPUs!")
+    
     model.to(device)
+    if args.distributed:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    model_without_ddp = model
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
     print('done')
 
     # Hook model to wandb
@@ -75,47 +125,57 @@ def trainval_cityscapes(
     print('Building optimizer...', end='')
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(
-        params, lr=lr, momentum=momentum, weight_decay=weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+        params, lr=config['lr'], momentum=config['momentum'],
+        weight_decay=config['weight_decay'])
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=config['step_size'], gamma=config['gamma'])
     print('done')
 
     # Make mixed precision scaler
     scaler = torch.cuda.amp.GradScaler()
 
     # Load checkpoint
-    if checkpoint is None:
-        init_epoch = 0
-        step = 0
-    else:
-        state_dict = torch.load(checkpoint)
-        model.load_state_dict(state_dict['model'])
-        optimizer.load_state_dict(state_dict['optimizer'])
-        lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
-        scaler.load_state_dict(state_dict['scaler'])
-        init_epoch = state_dict['epoch']
-        step = state_dict['step']
+    init_epoch = 0
+    step = 0
+    if resume:
+        latest_ckpt = get_latest_checkpoint(experiment_dir)
+        if latest_ckpt is not None:
+            state_dict = torch.load(config['checkpoint'], map_location=device)
+            model_without_ddp.load_state_dict(state_dict['model'])
+            optimizer.load_state_dict(state_dict['optimizer'])
+            lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
+            scaler.load_state_dict(state_dict['scaler'])
+            init_epoch = state_dict['epoch'] + 1
+            step = state_dict['step']
+    elif config['checkpoint'] is not None:
+        state_dict = torch.load(config['checkpoint'], map_location=device)
+        model_without_ddp.load_state_dict(state_dict['model'])
 
     # Make metric manager
-    metrics = [ScalarMetric('total_loss', log_interval=50, scalar_key='total_loss')]
+    metrics = [ScalarMetric(
+        'total_loss', log_interval=config['log_interval'], scalar_key='total_loss')]
     for loss_key in LOSS_KEYS:
-        metrics.append(ScalarMetric(loss_key, log_interval=50, scalar_key=loss_key))
+        metrics.append(ScalarMetric(
+            loss_key, log_interval=config['log_interval'], scalar_key=loss_key))
     metrics = MetricManager(
-        os.path.join(output_dir, 'logs'),
-        metrics=metrics, purge_step=(step + 1 if step else None),
-        wandb_enabled=enable_wandb
-    )
+        log_dir, metrics=metrics, purge_step=(step + 1 if step else None), wandb_enabled=enable_wandb)
 
     # Main training/val loop
     print('Starting training')
-    for epoch in range(init_epoch, epochs):
+    for epoch in range(init_epoch, config['epochs']):
+        # Log learning rate
+        metrics.writer.add_scalar(
+            metrics.train_prefix + 'lr', lr_scheduler.get_last_lr(), step)
+
         # Train for an epoch
-        step = train_one_epoch(model, optimizer, train_loader, device, epoch, step, metrics=metrics, scaler=scaler)
+        step = train_one_epoch(
+            model, optimizer, train_loader, device, epoch, step, metrics=metrics, scaler=scaler)
         lr_scheduler.step()
         metrics.reset()
 
-        if not ((epoch + 1) % eval_interval):
+        if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
-            save_checkpoint(output_dir, epoch, step, model, optimizer, lr_scheduler, scaler)
+            save_checkpoint(ckpt_dir, epoch, step, model_without_ddp, optimizer, lr_scheduler, scaler)
             coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
@@ -128,64 +188,16 @@ def trainval_cityscapes(
 
 
 if __name__ == '__main__':
-    import json
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('name', type=str, help='Name for the training run')
-    parser.add_argument('-rt', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
-    parser.add_argument('-ep', '--epochs', type=int, default=200, help='Training epochs')
-    parser.add_argument('-ck', '--checkpoint', type=str, default='', help='Checkpoint file')
-    parser.add_argument('-ei', '--eval_interval', type=int, default=10, help='Interval between evaluations, in epochs')
-    parser.add_argument('-bs', '--batch_size', type=int, default=16, help='Training batch size')
-    parser.add_argument('-cp', '--copy_paste', action='store_true', help='Flag to enable Copy-Paste augmentation')
-    parser.add_argument('-ji', '--jitter_mode', type=str, default='standard',
-                        choices=('standard', 'large'), help='Scale jitter mode')
-    parser.add_argument('-lr', '--lr', type=float, default=0.02, help='Learning rate')
-    parser.add_argument('-mo', '--momentum', type=float, default=0.9, help='Optimizer momentum')
-    parser.add_argument('-wd', '--weight_decay', type=float, default=0.0001, help='Optimizer weight decay')
-    parser.add_argument('-ss', '--step_size', type=int, default=100,
-                        help='Number of epochs between step learning rate decay')
-    parser.add_argument('-ga', '--gamma', type=float, default=0.1, help='Step learning rate decay constant')
-    parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
-    parser.add_argument('-nw', '--num_workers', type=int, default=24, help='Number of dataloader workers')
+    parser.add_argument('experiment_name', type=str, help='Name of experiment directory')
+    parser.add_argument('-r', '--resume', action='store_true', help='Flag to resume training from latest checkpoint')
     parser.add_argument('-ew', '--enable_wandb', action='store_true', help='Enables logging to wandb')
+    
+    # distributed training parameters
+    parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+    parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
     args = parser.parse_args()
 
-    # Make output directory, device ID, and checkpoint
-    output_dir = os.path.join(EXPERIMENT_DIR, args.name)
-    os.makedirs(output_dir, exist_ok=True)
-    device = 'cuda:{}'.format(args.gpu_device)
-    checkpoint = args.checkpoint if args.checkpoint else None
-
-    args_dict = vars(args)
-
-    if args.enable_wandb:
-        wandb.init(project=args.name, entity="syde671-copy-paste", 
-                    config=args_dict)
-        wandb.tensorboard.patch(pytorch=True)
-        
-
-    # Dump parameters to output directory
-    with open(os.path.join(output_dir, 'run_settings.json'), 'w') as f:
-        json.dump(args_dict, f)
-
-    # Run training
-    trainval_cityscapes(
-        args.root,
-        output_dir,
-        checkpoint=checkpoint,
-        epochs=args.epochs,
-        eval_interval=args.eval_interval,
-        batch_size=args.batch_size,
-        copy_paste=args.copy_paste,
-        jitter_mode=args.jitter_mode,
-        lr=args.lr,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay,
-        step_size=args.step_size,
-        gamma=args.gamma,
-        num_workers=args.num_workers,
-        device=device,
-        enable_wandb=args.enable_wandb
-    )
+    trainval_cityscapes(args)

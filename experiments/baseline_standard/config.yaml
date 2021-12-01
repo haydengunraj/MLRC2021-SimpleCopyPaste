@@ -1,0 +1,28 @@
+# Dataset settings
+data_root: cityscapes
+copy_paste: false
+jitter_mode: standard
+batch_size: 8
+
+# Model Settings
+min_size: 1024
+max_size: 2048
+pretrained: false
+pretrained_backbone: true
+
+# Training settings
+epochs: 65
+checkpoint: null
+eval_interval: 5
+log_interval: 50
+
+# Optimizer settings
+lr: 0.01
+momentum: 0.9
+weight_decay: 0.0001
+step_size: 49
+gamma: 0.1
+
+# Hardware settings
+gpu_device: 4
+num_workers: 32
