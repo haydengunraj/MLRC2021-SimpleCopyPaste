@@ -59,8 +59,10 @@ def trainval_cityscapes(experiment_name, resume=False):
     print('Building datasets...', end='', flush=True)
     train_dataset = get_cityscapes_dataset(
         config['data_root'], 'train', jitter_mode=config['jitter_mode'],
-        copy_paste=config['copy_paste'], image_size=(config['max_size'], config['min_size']))
-    val_dataset = get_cityscapes_dataset(config['data_root'], 'val')
+        copy_paste=config['copy_paste'], image_size=(config['max_size'], config['min_size']),
+        fraction=config.get('fraction', None), fraction_seed=config.get('fraction_seed', None))
+    val_dataset = get_cityscapes_dataset(
+        config['data_root'], 'val', image_size=(config['max_size'], config['min_size']))
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], shuffle=True,
         num_workers=config['num_workers'], collate_fn=collate_fn)

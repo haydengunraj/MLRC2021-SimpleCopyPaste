@@ -13,7 +13,8 @@ _INSTANCE_SELECTION_MODES = ('one', 'subset', 'all')
 class CityscapesInstanceDataset(Cityscapes):
     """Modifies the torchvision Cityscapes dataset class to
      use the target format of torchvision detection models"""
-    def __init__(self, root, split='train', transforms=None, clean=True, image_size=None):
+    def __init__(self, root, split='train', transforms=None, clean=True,
+                 image_size=None, fraction=None, fraction_seed=None):
         super().__init__(
             root=root, split=split, mode='fine', target_type='instance', transforms=None)
         self.transforms = transforms
@@ -21,10 +22,28 @@ class CityscapesInstanceDataset(Cityscapes):
         if split == 'train' and clean:
             self._remove_images_without_annotations()
 
+        # Expose only a fraction of the data
+        self.fraction = fraction
+        self.fraction_seed = fraction_seed
+        if fraction is not None:
+            # Sort before shuffling
+            sorting_order = np.argsort(self.images)
+            self.images = [self.images[i] for i in sorting_order]
+            self.targets = [self.targets[i] for i in sorting_order]
+
+            # Shuffle with optional fixed seed
+            if fraction_seed is not None:
+                np.random.seed(fraction_seed)
+            order = np.arange(len(self.images), dtype=np.int32)
+            np.random.shuffle(order)
+            order = order[:round(fraction*len(self.images))]
+            self.images = [self.images[i] for i in order]
+            self.targets = [self.targets[i] for i in order]
+
     def _remove_images_without_annotations(self):
         """Helper to remove images that have no annotations"""
         valid_indices = []
-        for i in range(len(self)):
+        for i in range(len(self.images)):
             target = self._get_target(i)
             if len(target['boxes']):
                 valid_indices.append(i)
@@ -105,10 +124,12 @@ class CityscapesInstanceDataset(Cityscapes):
 
 class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
     """Modifies the CityscapesInstanceDataset to add Copy-Paste Augmentation"""
-    def __init__(self, root, split='train', transforms=None, clean=True, image_size=None, selection_mode='subset',
+    def __init__(self, root, split='train', transforms=None, clean=True, image_size=None,
+                 fraction=None, fraction_seed=None, selection_mode='subset',
                  occluded_obj_thresh=20, p=0.5):
         super().__init__(
-            root=root, split=split, transforms=transforms, clean=clean, image_size=image_size)
+            root=root, split=split, transforms=transforms, clean=clean,
+            image_size=image_size, fraction=fraction, fraction_seed=fraction_seed)
         if selection_mode not in _INSTANCE_SELECTION_MODES:
             raise ValueError('Invalid selection_mode: {}. Must be one of: {}'.format(
                 selection_mode, _INSTANCE_SELECTION_MODES))
@@ -124,7 +145,7 @@ class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
             return image, target
 
         # Get random second image and target
-        img_indices = np.arange(len(self), dtype=np.int32)
+        img_indices = np.arange(len(self.images), dtype=np.int32)
         img_indices[index] = index - 1 if index else index + 1  # ensure same image not selected
         src_image, src_target = super().__getitem__(np.random.choice(img_indices))
 
@@ -280,16 +301,19 @@ def get_transform(is_training, jitter_mode='standard'):
     return T.Compose(transforms)
 
 
-def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True, image_size=None):
+def get_cityscapes_dataset(root, split, jitter_mode='standard', copy_paste=True,
+                           image_size=None, fraction=None, fraction_seed=None):
     """Helper to create Cityscapes train/val datasets"""
     if split == 'train':
         train_tform = get_transform(True, jitter_mode=jitter_mode)
         if copy_paste:
             dataset = CityscapesCopyPasteInstanceDataset(
-                root=root, split=split, transforms=train_tform, image_size=image_size)
+                root=root, split=split, transforms=train_tform, image_size=image_size,
+                fraction=fraction, fraction_seed=fraction_seed)
         else:
             dataset = CityscapesInstanceDataset(
-                root=root, split=split, transforms=train_tform, image_size=image_size)
+                root=root, split=split, transforms=train_tform, image_size=image_size,
+                fraction=fraction, fraction_seed=fraction_seed)
     elif split in ('val', 'test'):
         dataset = CityscapesInstanceDataset(
             root=root, split=split, transforms=get_transform(False), image_size=image_size)
