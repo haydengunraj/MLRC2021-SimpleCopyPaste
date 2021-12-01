@@ -44,6 +44,22 @@ class RandomHorizontalFlip(T.RandomHorizontalFlip):
                     target["keypoints"] = keypoints
         return image, target
 
+class Resize(T.Resize):
+    def __init__(self, scale=0.5):
+        self.scale = scale
+    
+    def forward(self, image: Tensor, target: Optional[Dict[str, Tensor]] = None
+    )-> Tuple[Tensor, Optional[Dict[str, Tensor]]]:
+        h, w = image.shape
+        new_h, new_w = int(h*self.scale), int(w*self.scale)
+        image = F.resize(image, [new_h, new_w], antialias=True, interpolation=F.InterpolationMode.NEAREST)
+
+        # Resize and pad masks w/ bbox updates
+        for i, mask in enumerate(target['masks']):
+            mask = mask.unsqueeze(0)
+            mask = F.resize(mask, [new_h, new_w], interpolation=F.InterpolationMode.NEAREST)
+            target['masks'][i] = mask
+            target['boxes'][i] = target['boxes'][i]*self.scale
 
 class ToTensor(nn.Module):
     def forward(

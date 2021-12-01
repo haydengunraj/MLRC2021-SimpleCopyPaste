@@ -278,6 +278,7 @@ def get_transform(is_training, jitter_mode='standard'):
         else:
             raise ValueError('Invalid scale jitter mode: {}'.format(jitter_mode))
         transforms = [
+            T.Resize(scale=0.5),
             T.RandomHorizontalFlip(p=0.5),
             RandomScaleJitter(scale_range=scale_range, occluded_obj_thresh=20, p=0.5)
         ]

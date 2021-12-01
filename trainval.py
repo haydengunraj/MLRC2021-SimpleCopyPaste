@@ -12,6 +12,7 @@ from metrics import MetricManager, ScalarMetric
 from pathlib import Path
 from multiprocessing import Pool
 from itertools import repeat
+import torch.profiler
 
 
 TORCH_HOME = 'weights'
