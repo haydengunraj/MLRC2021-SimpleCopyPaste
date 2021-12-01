@@ -37,9 +37,9 @@ class MetricManager:
         for metric in self.metrics:
             metric.reset()
 
-    def publish_to_wandb(self, wandb_metrics):
+    def publish_to_wandb(self, wandb_metrics, step):
         if self.wandb_enabled:
-            wandb.log(wandb_metrics)
+            wandb.log(wandb_metrics, step=step)
 
     def log(self, step, epoch=None):
         """Log the current values"""
@@ -70,7 +70,7 @@ class MetricManager:
                 print_ = True
         
         # Log metrics to wandb if enabled
-        self.publish_to_wandb(wandb_metrics)
+        self.publish_to_wandb(wandb_metrics, step)
 
         if self.print_metrics and print_:
             print(log_str + ']', flush=True)

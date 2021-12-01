@@ -184,10 +184,14 @@ def trainval_cityscapes(args):
             coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
+            val_metrics = {}
             for iou_type, coco_eval in coco_evaluator.coco_eval.items():
                 mean_ap = coco_eval.stats[0]
                 iou_str = 'box_mAP' if iou_type == 'bbox' else 'mask_mAP'
+                val_metrics[metrics.val_prefix + iou_str] = mean_ap
                 metrics.writer.add_scalar(metrics.val_prefix + iou_str, mean_ap, step)
+
+            metrics.publish_to_wandb(val_metrics, step=step)
 
     return model
 
