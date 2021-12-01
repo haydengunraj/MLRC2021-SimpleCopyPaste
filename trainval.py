@@ -95,7 +95,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     if resume:
         latest_ckpt = get_latest_checkpoint(experiment_dir)
         if latest_ckpt is not None:
-            state_dict = torch.load(config['checkpoint'], map_location=device)
+            state_dict = torch.load(latest_ckpt, map_location=device)
             model.load_state_dict(state_dict['model'])
             optimizer.load_state_dict(state_dict['optimizer'])
             lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
