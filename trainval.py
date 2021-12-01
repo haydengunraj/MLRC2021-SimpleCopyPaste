@@ -56,8 +56,12 @@ def trainval_cityscapes(args):
         config = yaml.safe_load(f)
 
     # Setup wandb (if needed)
+    if args.distributed and args.gpu != 0:
+        # Only log to wandb from GPU 0 process
+        args.enable_wandb = False
+
     if args.enable_wandb:
-        wandb.init(project=args.name, entity="syde671-copy-paste", 
+        wandb.init(project=args.experiment_name, entity="syde671-copy-paste", 
                     config=config)
         wandb.tensorboard.patch(pytorch=True, tensorboardX=True)
 
@@ -119,7 +123,7 @@ def trainval_cityscapes(args):
     print('done')
 
     # Hook model to wandb
-    if enable_wandb:
+    if args.enable_wandb:
         wandb.watch(model, log="all", log_freq=1000)
 
     # Make optimizer and LR scheduler
@@ -159,7 +163,7 @@ def trainval_cityscapes(args):
         metrics.append(ScalarMetric(
             loss_key, log_interval=config['log_interval'], scalar_key=loss_key))
     metrics = MetricManager(
-        log_dir, metrics=metrics, purge_step=(step + 1 if step else None), wandb_enabled=enable_wandb)
+        log_dir, metrics=metrics, purge_step=(step + 1 if step else None), wandb_enabled=args.enable_wandb)
 
     # Main training/val loop
     print('Starting training')
