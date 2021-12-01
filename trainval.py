@@ -47,12 +47,6 @@ def trainval_cityscapes(args):
     utils.init_distributed_mode(args)
     print(args)
 
-    # Setup wandb (if needed)
-    if args.enable_wandb:
-        wandb.init(project=args.name, entity="syde671-copy-paste", 
-                    config=vars(args))
-        wandb.tensorboard.patch(pytorch=True, tensorboardX=True)
-
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
     config_file = os.path.join(experiment_dir, 'config.yaml')
@@ -60,6 +54,13 @@ def trainval_cityscapes(args):
         raise ValueError('Config file not found: {}'.format(config_file))
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
+
+    # Setup wandb (if needed)
+    if args.enable_wandb:
+        wandb.init(project=args.name, entity="syde671-copy-paste", 
+                    config=config)
+        wandb.tensorboard.patch(pytorch=True, tensorboardX=True)
+
 
     # Make directories for logs and checkpoints
     log_dir = os.path.join(experiment_dir, 'logs')
