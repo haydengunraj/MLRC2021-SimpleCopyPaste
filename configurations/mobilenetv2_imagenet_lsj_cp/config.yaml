@@ -5,7 +5,7 @@ jitter_mode: large
 batch_size: 8
 
 # Model Settings
-backbone: mobilenetv2_fpn
+backbone: mobilenet_v2_fpn
 min_size: 1024
 max_size: 2048
 pretrained: false
@@ -23,7 +23,3 @@ momentum: 0.9
 weight_decay: 0.0001
 step_size: 73
 gamma: 0.1
-
-# Hardware settings
-gpu_device: 0
-num_workers: 32
