@@ -36,7 +36,7 @@ def get_latest_checkpoint(experiment_dir):
     return None
 
 
-def trainval_cityscapes(experiment_name, resume=False):
+def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
@@ -53,7 +53,7 @@ def trainval_cityscapes(experiment_name, resume=False):
     os.makedirs(ckpt_dir, exist_ok=True)
 
     # Setup device
-    device = torch.device('cuda:{}'.format(config['gpu_device']))
+    device = torch.device('cuda:{}'.format(gpu))
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
@@ -65,10 +65,10 @@ def trainval_cityscapes(experiment_name, resume=False):
         config['data_root'], 'val', image_size=(config['max_size'], config['min_size']))
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], shuffle=True,
-        num_workers=config['num_workers'], collate_fn=collate_fn)
+        num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=1, shuffle=False,
-        num_workers=config['num_workers'], collate_fn=collate_fn)
+        num_workers=num_workers, collate_fn=collate_fn)
     print('done', flush=True)
 
     # Make model
@@ -150,6 +150,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_name', type=str, help='Name of experiment directory')
     parser.add_argument('-r', '--resume', action='store_true', help='Flag to resume training from latest checkpoint')
+    parser.add_argument('-g', '--gpu', type=int, default=0, help='GPU number')
+    parser.add_argument('-n', '--num_workers', type=int, default=32, help='Number of workers for data loading')
     args = parser.parse_args()
 
-    trainval_cityscapes(args.experiment_name, resume=args.resume)
+    trainval_cityscapes(args.experiment_name, resume=args.resume, gpu=args.gpu, num_workers=args.num_workers)

@@ -286,7 +286,7 @@ def get_transform(is_training, jitter_mode='standard'):
     """Creates transforms for the Cityscapes dataset"""
     if is_training:
         if jitter_mode == 'standard':
-            scale_range = [0.8, 1.2]
+            scale_range = [0.8, 1.25]
         elif jitter_mode == 'large':
             scale_range = [0.1, 2]
         else:

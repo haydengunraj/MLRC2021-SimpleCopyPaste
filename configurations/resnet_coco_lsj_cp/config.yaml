@@ -12,18 +12,14 @@ pretrained: true
 pretrained_backbone: false
 
 # Training settings
-epochs: 97
+epochs: 33
 checkpoint: null
-eval_interval: 5
+eval_interval: 4
 log_interval: 50
 
 # Optimizer settings
 lr: 0.01
 momentum: 0.9
 weight_decay: 0.0001
-step_size: 73
+step_size: 24
 gamma: 0.1
-
-# Hardware settings
-gpu_device: 6
-num_workers: 32

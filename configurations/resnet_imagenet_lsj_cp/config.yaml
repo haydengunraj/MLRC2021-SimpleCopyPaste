@@ -23,7 +23,3 @@ momentum: 0.9
 weight_decay: 0.0001
 step_size: 73
 gamma: 0.1
-
-# Hardware settings
-gpu_device: 6
-num_workers: 32
