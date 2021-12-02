@@ -3,6 +3,7 @@ from torchvision.models.detection.mask_rcnn import MaskRCNN, MaskRCNNPredictor, 
 from torchvision.models.detection.backbone_utils import mobilenet_backbone
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops import misc as misc_nn_ops
+import torch
 
 from data import NUM_CLASSES
 
@@ -40,6 +41,11 @@ def maskrcnn(backbone_name, num_classes, pretrained=False, pretrained_backbone=F
 
         if pretrained:
             print('WARNING: COCO pretrained model not available for MobileNetV2 FPN backbone')
+    elif backbone_name == 'efficientnetb7_fpn':
+        # Build Mask R-CNN EfficientNet B7 FPN
+        model = maskrcnn_efficientnetb7_fpn(
+            num_classes, pretrained_backbone=pretrained_backbone, 
+            min_size=min_size, max_size=max_size)
     else:
         raise ValueError('Invalid backbone_name: {}'.format(backbone_name))
 
@@ -65,4 +71,29 @@ def maskrcnn_mobilenetv2_fpn(num_classes, pretrained_backbone=False, min_size=10
 
     model = MaskRCNN(
         backbone, num_classes, rpn_anchor_generator=anchor_generator, min_size=min_size, max_size=max_size)
+    return model
+
+
+def maskrcnn_efficientnetb7_fpn(num_classes, pretrained_backbone=False, 
+                                min_size=1024, max_size=2048):
+    """Builds a Mask R-CNN with EfficientNet B7 FPN backbone."""
+
+    # EfficientNet B7 FPN backbone
+    backbone = torch.hub.load(
+        'AdeelH/pytorch-fpn',
+        'make_fpn_efficientnet',
+        force_reload=True,
+        name='efficientnet_b7',
+        fpn_type='fpn',
+        pretrained=pretrained_backbone,
+        num_classes=num_classes,
+        fpn_channels=256,
+        in_channels=3,
+        out_size=(224, 224)
+    )
+
+    backbone.out_channels = 256
+    model = MaskRCNN(backbone=backbone, num_classes=num_classes, 
+                    min_size=min_size, max_size=max_size)
+
     return model

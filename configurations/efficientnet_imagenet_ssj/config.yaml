@@ -5,24 +5,25 @@ jitter_mode: standard
 batch_size: 8
 
 # Model Settings
-min_size: 512
-max_size: 1024
-pretrained: true
-pretrained_backbone: true
+backbone: efficientnetb7_fpn
+min_size: 640
+max_size: 640
+pretrained: false
+pretrained_backbone: false
 
 # Training settings
-epochs: 11
+epochs: 97
 checkpoint: null
-eval_interval: 5
+eval_interval: 1
 log_interval: 50
 
 # Optimizer settings
 lr: 0.01
 momentum: 0.9
 weight_decay: 0.0001
-step_size: 8
+step_size: 73
 gamma: 0.1
 
 # Hardware settings
-gpu_device: 0
-num_workers: 16
+gpu_device: 4
+num_workers: 8

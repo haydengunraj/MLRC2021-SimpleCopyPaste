@@ -14,6 +14,7 @@ import detection.utils as utils
 
 TORCH_HOME = 'weights'
 LOSS_KEYS = ('loss_classifier', 'loss_box_reg', 'loss_mask', 'loss_objectness', 'loss_rpn_box_reg')
+CONFIG_DIR = 'configurations'
 EXPERIMENT_DIR = 'experiments'
 
 
@@ -54,7 +55,8 @@ def trainval_cityscapes(args):
 
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
-    config_file = os.path.join(experiment_dir, 'config.yaml')
+    config_dir = os.path.join(CONFIG_DIR, experiment_name)
+    config_file = os.path.join(config_dir, 'config.yaml')
     if not os.path.exists(config_file):
         raise ValueError('Config file not found: {}'.format(config_file))
     with open(config_file, 'r') as f:
