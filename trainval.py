@@ -6,8 +6,8 @@ from torch import nn
 from detection.utils import collate_fn
 from detection.engine import train_one_epoch, evaluate
 import wandb
-from model import mask_rcnn
-from data import get_cityscapes_dataset, NUM_CLASSES
+from model import maskrcnn_from_config
+from data import get_cityscapes_dataset
 from metrics import MetricManager, ScalarMetric
 
 import detection.utils as utils
@@ -84,7 +84,7 @@ def trainval_cityscapes(args):
     print('Building datasets...', end='', flush=True)
     train_dataset = get_cityscapes_dataset(
         config['data_root'], 'train', jitter_mode=config['jitter_mode'],
-        copy_paste=config['copy_paste'])
+        copy_paste=config['copy_paste'], image_size=(config['max_size'], config['min_size']))
     val_dataset = get_cityscapes_dataset(config['data_root'], 'val')
 
     if args.distributed:
@@ -111,12 +111,8 @@ def trainval_cityscapes(args):
     # Make model
     print('Building model...', end='')
     os.environ['TORCH_HOME'] = TORCH_HOME
-    model = mask_rcnn(
-        NUM_CLASSES, pretrained=config['pretrained'],
-        pretrained_backbone=config['pretrained_backbone'],
-        min_size=config['min_size'], max_size=config['max_size'])
+    model = maskrcnn_from_config(config)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
-    
     model.to(device)
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
