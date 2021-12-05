@@ -157,6 +157,8 @@ def trainval_cityscapes(args):
         # Log learning rate
         metrics.writer.add_scalar(
             metrics.train_prefix + 'lr', lr_scheduler.get_last_lr(), step)
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
 
         # Train for an epoch
         step = train_one_epoch(
