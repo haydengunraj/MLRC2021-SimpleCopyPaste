@@ -45,7 +45,7 @@ def load_config(config_file):
     return config
 
 
-def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
+def trainval_cityscapes(experiment_name, resume=False, gpus=(0,), num_workers=32):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
@@ -58,8 +58,8 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    # Setup device
-    device = torch.device('cuda:{}'.format(gpu))
+    # Set up device
+    device = torch.device('cuda:{}'.format(gpus[0]))
 
     # Make datasets and data loaders
     print('Building datasets...', end='', flush=True)
@@ -73,7 +73,7 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
         train_dataset, batch_size=config['batch_size'], shuffle=True,
         num_workers=num_workers, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False,
+        val_dataset, batch_size=max(1, len(gpus)), shuffle=False,
         num_workers=num_workers, collate_fn=collate_fn)
     print('done', flush=True)
 
@@ -82,6 +82,10 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
     os.environ['TORCH_HOME'] = TORCH_HOME
     model = maskrcnn_from_config(config)
     model.to(device)
+    model_wo_dp = model
+    if len(gpus) > 1:
+        model = torch.nn.DataParallel(model, device_ids=gpus, output_device=gpus[0])
+        model_wo_dp = model.module
     print('done')
 
     # Make optimizer and LR scheduler
@@ -104,7 +108,7 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
         latest_ckpt = get_latest_checkpoint(experiment_dir)
         if latest_ckpt is not None:
             state_dict = torch.load(latest_ckpt, map_location=device)
-            model.load_state_dict(state_dict['model'])
+            model_wo_dp.load_state_dict(state_dict['model'])
             optimizer.load_state_dict(state_dict['optimizer'])
             lr_scheduler.load_state_dict(state_dict['lr_scheduler'])
             scaler.load_state_dict(state_dict['scaler'])
@@ -112,7 +116,7 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
             step = state_dict['step']
     elif config['checkpoint'] is not None:
         state_dict = torch.load(config['checkpoint'], map_location=device)
-        model.load_state_dict(state_dict['model'])
+        model_wo_dp.load_state_dict(state_dict['model'])
 
     # Make metric manager
     metrics = [ScalarMetric(
@@ -138,7 +142,7 @@ def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
 
         if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
-            save_checkpoint(ckpt_dir, epoch, step, model, optimizer, lr_scheduler, scaler)
+            save_checkpoint(ckpt_dir, epoch, step, model_wo_dp, optimizer, lr_scheduler, scaler)
             coco_evaluator = evaluate(model, val_loader, device=device)
 
             # Log eval metrics
@@ -156,8 +160,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_name', type=str, help='Name of experiment directory')
     parser.add_argument('-r', '--resume', action='store_true', help='Flag to resume training from latest checkpoint')
-    parser.add_argument('-g', '--gpu', type=int, default=0, help='GPU number')
+    parser.add_argument('-g', '--gpus', type=str, default='0', help='GPU indices, separated by commas')
     parser.add_argument('-n', '--num_workers', type=int, default=32, help='Number of workers for data loading')
     args = parser.parse_args()
 
-    trainval_cityscapes(args.experiment_name, resume=args.resume, gpu=args.gpu, num_workers=args.num_workers)
+    gpus = [int(g) for g in args.gpus.split(',')]
+    trainval_cityscapes(args.experiment_name, resume=args.resume, gpus=gpus, num_workers=args.num_workers)
