@@ -5,9 +5,10 @@ import numpy as np
 
 from model import maskrcnn_from_config
 from data import get_cityscapes_dataset
+from trainval import load_config
 
 
-def _format_instance_dict(instance_dict):
+def format_instance_dict(instance_dict):
     """Convert Torch detections/annotations to numpy"""
     # Convert to numpy arrays
     instance_dict = {key: val.cpu().numpy() for key, val in instance_dict.items()}
@@ -86,13 +87,13 @@ def overlay_bboxes(image, instance_dict, classes, colour=(255, 255, 255),
     return image
 
 
-def visualize_cityscapes(cityscapes_root, checkpoint, config, output_dir, include_boxes=True,
+def visualize_detections(cityscapes_root, checkpoint, config, output_dir, include_boxes=True,
                          num_vis=100, score_thresh=0.5, device='cuda:0'):
     """Makes visualizations of a trained Mask-RCNN model's predictions"""
     # Setup device
     device = torch.device(device)
 
-    # Make dataset and data loader
+    # Make dataset
     dataset = get_cityscapes_dataset(cityscapes_root, 'val')
 
     # Make model
@@ -114,11 +115,11 @@ def visualize_cityscapes(cityscapes_root, checkpoint, config, output_dir, includ
         for idx in indices:
             # Load image and target
             image, target = dataset[idx]
-            target = _format_instance_dict(target)
+            target = format_instance_dict(target)
 
             # Run model
             detections = model(image.unsqueeze(0).to(device))[0]
-            detections = _format_instance_dict(detections)
+            detections = format_instance_dict(detections)
             valid_idx = detections['scores'] >= score_thresh
             for key in ('boxes', 'masks', 'labels', 'scores'):
                 detections[key] = detections[key][valid_idx]
@@ -147,23 +148,26 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-ck', '--checkpoint', type=str, help='Checkpoint file')
-    parser.add_argument('-cf', '--config_file', type=str, help='Configuration file used to build the model')
-    parser.add_argument('-rt', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
-    parser.add_argument('-op', '--output', type=str, default='visualizations', help='Output directory')
-    parser.add_argument('-nv', '--num_visualizations', type=int, default=50,
+    parser.add_argument('-c', '--checkpoint', type=str, help='Checkpoint file')
+    parser.add_argument('-f', '--config_file', type=str, help='Configuration file used to build the model')
+    parser.add_argument('-r', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
+    parser.add_argument('-o', '--output', type=str, default='det_visualizations', help='Output directory')
+    parser.add_argument('-v', '--num_visualizations', type=int, default=50,
                         help='Number of visualizations to generate')
-    parser.add_argument('-nb', '--no_bboxes', action='store_true', help='Flag to prevent overlay of bounding boxes')
-    parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
+    parser.add_argument('-b', '--no_bboxes', action='store_true', help='Flag to prevent overlay of bounding boxes')
+    parser.add_argument('-g', '--gpu', type=int, default=0, help='GPU number')
     args = parser.parse_args()
 
+    # Load config
+    config = load_config(args.config_file)
+
     # Run training
-    visualize_cityscapes(
+    visualize_detections(
         args.root,
         args.checkpoint,
-        args.config,
+        config,
         args.output,
         include_boxes=(not args.no_bboxes),
         num_vis=args.num_visualizations,
-        device='cuda:{}'.format(args.gpu_device)
+        device='cuda:{}'.format(args.gpu)
     )

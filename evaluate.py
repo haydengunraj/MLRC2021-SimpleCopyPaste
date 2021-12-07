@@ -3,8 +3,9 @@ import torch
 from detection.utils import collate_fn
 from detection.engine import evaluate
 
-from trainval import maskrcnn_from_config
+from model import maskrcnn_from_config
 from data import get_cityscapes_dataset
+from trainval import load_config
 
 
 def evaluate_cityscapes(cityscapes_root, checkpoint, config, num_workers=4, device='cuda:0'):
@@ -34,22 +35,21 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-ck', '--checkpoint', type=str, help='Checkpoint file')
-    parser.add_argument('-cf', '--config_file', type=str, help='Configuration file used to build the model')
-    parser.add_argument('-rt', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
-    parser.add_argument('-gd', '--gpu_device', type=int, default=0, help='GPU index')
+    parser.add_argument('-c', '--checkpoint', type=str, help='Checkpoint file')
+    parser.add_argument('-f', '--config_file', type=str, help='Configuration file used to build the model')
+    parser.add_argument('-r', '--root', type=str, default='cityscapes', help='Path to Cityscapes data directory')
+    parser.add_argument('-g', '--gpu', type=int, default=0, help='GPU number')
+    parser.add_argument('-n', '--num_workers', type=int, default=1, help='Number of workers for data loading')
     args = parser.parse_args()
 
     # Load config
-    if not os.path.exists(args.config_file):
-        raise ValueError('Config file not found: {}'.format(args.config_file))
-    with open(args.config_file, 'r') as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config_file)
 
     # Run training
     evaluate_cityscapes(
         args.root,
         args.checkpoint,
         config,
-        device='cuda:{}'.format(args.gpu_device)
+        num_workers=args.num_workers,
+        device='cuda:{}'.format(args.gpu)
     )

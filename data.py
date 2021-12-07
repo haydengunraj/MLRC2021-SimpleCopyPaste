@@ -149,35 +149,46 @@ class CityscapesCopyPasteInstanceDataset(CityscapesInstanceDataset):
         img_indices[index] = index - 1 if index else index + 1  # ensure same image not selected
         src_image, src_target = super().__getitem__(np.random.choice(img_indices))
 
-        # Select object indices from second image
-        num_objs = len(src_target['labels'])
-        if not num_objs:
-            return image, target
-        obj_indices = np.arange(num_objs, dtype=np.int32)  # all
-        if self.selection_mode == _INSTANCE_SELECTION_MODES[0]:  # one
-            obj_indices = np.atleast_1d(np.random.choice(obj_indices))
-        elif self.selection_mode == _INSTANCE_SELECTION_MODES[1]:  # random subset
-            num_inst = np.random.randint(1, num_objs + 1)
-            obj_indices = np.random.choice(obj_indices, num_inst, replace=False)
-
-        # Get overall mask of instances
-        src_mask = torch.any(src_target['masks'][obj_indices], dim=0, keepdim=True)
-
-        # Remove overall mask from masks in original image
-        new_masks = target['masks'] - np.logical_and(target['masks'], src_mask)
-
-        # Update target to fix occluded masks
-        target = update_occluded_masks(target, new_masks, occluded_obj_thresh=self.occluded_obj_thresh)
-
-        # Add pasted instances to target
-        for key in ('labels', 'boxes', 'masks', 'area', 'iscrowd'):
-            target[key] = torch.cat((target[key], src_target[key][obj_indices]), dim=0)
-
-        # Paste instances into original image
-        src_mask = src_mask[0].type(torch.bool)
-        image[:, src_mask] = src_image[:, src_mask]
+        # Paste objects from src_image into image
+        image, target = copy_paste_augmentation(
+            image, target, src_image, src_target, selection_mode=self.selection_mode,
+            occluded_obj_thresh=self.occluded_obj_thresh)
 
         return image, target
+
+
+def copy_paste_augmentation(image, target, src_image, src_target, selection_mode='subset', occluded_obj_thresh=20):
+    """Performs Copy-Paste augmentation for a pair of images and
+    targets. Instances are pasted from src_image into image."""
+    # Select object indices from second image
+    num_objs = len(src_target['labels'])
+    if not num_objs:
+        return image, target
+    obj_indices = np.arange(num_objs, dtype=np.int32)  # all
+    if selection_mode == _INSTANCE_SELECTION_MODES[0]:  # one
+        obj_indices = np.atleast_1d(np.random.choice(obj_indices))
+    elif selection_mode == _INSTANCE_SELECTION_MODES[1]:  # random subset
+        num_inst = np.random.randint(1, num_objs + 1)
+        obj_indices = np.random.choice(obj_indices, num_inst, replace=False)
+
+    # Get overall mask of instances
+    src_mask = torch.any(src_target['masks'][obj_indices], dim=0, keepdim=True)
+
+    # Remove overall mask from masks in original image
+    new_masks = target['masks'] - np.logical_and(target['masks'], src_mask)
+
+    # Update target to fix occluded masks
+    target = update_occluded_masks(target, new_masks, occluded_obj_thresh=occluded_obj_thresh)
+
+    # Add pasted instances to target
+    for key in ('labels', 'boxes', 'masks', 'area', 'iscrowd'):
+        target[key] = torch.cat((target[key], src_target[key][obj_indices]), dim=0)
+
+    # Paste instances into original image
+    src_mask = src_mask[0].type(torch.bool)
+    image[:, src_mask] = src_image[:, src_mask]
+
+    return image, target
 
 
 class RandomScaleJitter(nn.Module):

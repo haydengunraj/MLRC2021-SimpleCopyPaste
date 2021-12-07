@@ -5,5 +5,6 @@ weights/
 experiments/
 logs/
 checkpoints/
-visualizations/
+det_visualizations/
+aug_visualizations/
 *.pyc

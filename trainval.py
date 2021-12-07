@@ -36,15 +36,21 @@ def get_latest_checkpoint(experiment_dir):
     return None
 
 
+def load_config(config_file):
+    """Loads a YAML configuration file"""
+    if not os.path.exists(config_file):
+        raise ValueError('Config file not found: {}'.format(config_file))
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+
 def trainval_cityscapes(experiment_name, resume=False, gpu=0, num_workers=32):
     """Runs training and evaluation of a Mask-RCNN model on the Cityscapes dataset"""
     # Load configuration
     experiment_dir = os.path.join(EXPERIMENT_DIR, experiment_name)
     config_file = os.path.join(experiment_dir, 'config.yaml')
-    if not os.path.exists(config_file):
-        raise ValueError('Config file not found: {}'.format(config_file))
-    with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
+    config = load_config(config_file)
 
     # Make directories for logs and checkpoints
     log_dir = os.path.join(experiment_dir, 'logs')
