@@ -71,9 +71,9 @@ def trainval_cityscapes(experiment_name, resume=False, gpus=(0,), num_workers=32
         config['data_root'], 'val', image_size=(config['max_size'], config['min_size']))
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=config['batch_size'], shuffle=True,
-        num_workers=num_workers, collate_fn=collate_fn)
+        num_workers=num_workers, collate_fn=collate_fn, drop_last=(len(gpus) > 1))
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=max(1, len(gpus)), shuffle=False,
+        val_dataset, batch_size=1, shuffle=False,
         num_workers=num_workers, collate_fn=collate_fn)
     print('done', flush=True)
 
@@ -143,7 +143,7 @@ def trainval_cityscapes(experiment_name, resume=False, gpus=(0,), num_workers=32
         if (epoch + 1) == config['epochs'] or not ((epoch + 1) % config['eval_interval']):
             # Save weights and run evaluation
             save_checkpoint(ckpt_dir, epoch, step, model_wo_dp, optimizer, lr_scheduler, scaler)
-            coco_evaluator = evaluate(model, val_loader, device=device)
+            coco_evaluator = evaluate(model_wo_dp, val_loader, device=device)
 
             # Log eval metrics
             for iou_type, coco_eval in coco_evaluator.coco_eval.items():
