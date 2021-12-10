@@ -28,4 +28,4 @@ gamma: 0.1
 
 # Hardware settings
 gpu_device: 7
-num_workers: 8
+num_workers: 6

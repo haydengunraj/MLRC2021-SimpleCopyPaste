@@ -1,9 +1,9 @@
 # Dataset settings
 data_root: cityscapes
 copy_paste: false
-jitter_mode: standard
+jitter_mode: large
 batch_size: 8
-fraction: 0.5
+fraction: 1.0
 fraction_seed: 14
 
 # Model Settings
